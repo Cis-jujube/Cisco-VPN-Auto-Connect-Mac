@@ -1,6 +1,4 @@
 @echo off
-# QR Decode CLI - 命令行二维码解码
-# 用法: qrdecode <图片路径>
-# 示例: qrdecode screenshot.png
-#        qrdecode duo-qr-code.jpg
+@REM qrdecode: CLI QR decoder, extracts TOTP secrets from images
+@REM Usage: qrdecode screenshot.png
 python "%~dp0qrdecode.py" %*
