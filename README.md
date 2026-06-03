@@ -11,9 +11,10 @@
 Cisco Secure Client auto-connect tool with DUO 2FA, multi-profile management, a GUI, and a command line.
 User configuration is encrypted with Windows DPAPI.
 
-> **Windows only.** Run commands in **PowerShell** or **CMD**.
-
-> The GUI is a Python app. Connect, disconnect, and config still go through the PowerShell core script.
+> **Windows only.**
+> Run commands in **PowerShell** or **CMD**.
+> The GUI is a Python app.
+> Connect, disconnect, and config still go through the PowerShell core script.
 > Before connecting, if Cisco GUI (`csc_ui`) or another `vpncli` holds the connection lock, the script ends those processes.
 
 ## Features
@@ -152,16 +153,18 @@ vpn-config set duo passcode                        # Default DUO method
 
 # Add another VPN
 vpn-config add
-# Name: company
-# Server: vpn.company.com
-# Group: (blank)
-# Port: 443
-# Protocol: ssl
+# Name:     company
+# Server:   vpn.company.com
+# Group:    Corporate-VPN
+# Port:     8443
+# Protocol: ipsec
+# Username: jsmith
+# Password: ********
 
 # List profiles
 vpn-config list
 #   * dku       portal.dukekunshan.edu.cn:443
-#     company   vpn.company.com:443
+#     company   vpn.company.com:8443
 
 # Switch profile
 vpn-config use company
@@ -277,8 +280,10 @@ cisco-vpn-autoconnect/
 Cisco Secure Client 自动连接工具，支持 DUO 2FA、多配置管理、GUI 和命令行。
 用户配置通过 Windows DPAPI 加密存储。
 
-> 仅适用于 **Windows**，命令行请在 **PowerShell** 或 **CMD** 里执行。
-> GUI 是 Python 图形界面，连接、断开和配置仍由 PowerShell 核心脚本完成。
+> 仅适用于 **Windows**，
+> 命令行请在 **PowerShell** 或 **CMD** 里执行。
+> GUI 是 Python 图形界面，
+> 连接、断开和配置仍由 PowerShell 核心脚本完成。
 > 连接前若 Cisco GUI（`csc_ui`）或其它 `vpncli` 占用了连接功能，脚本会结束这些进程。
 
 ## 功能特性
@@ -416,16 +421,18 @@ vpn-config set duo passcode                        # 修改默认 DUO 方式
 ```powershell
 # 添加其他 VPN
 vpn-config add
-# Name: company
-# Server: vpn.company.com
-# Group: (留空)
-# Port: 443
-# Protocol: ssl
+# Name:     company
+# Server:   vpn.company.com
+# Group:    Corporate-VPN
+# Port:     8443
+# Protocol: ipsec
+# Username: jsmith
+# Password: ********
 
 # 查看所有配置
 vpn-config list
 #   * dku       portal.dukekunshan.edu.cn:443
-#     company   vpn.company.com:443
+#     company   vpn.company.com:8443
 
 # 切换到其他 VPN
 vpn-config use company
