@@ -125,11 +125,10 @@ if (-not $PSBoundParameters.ContainsKey('DuoMethod') -and $config.DuoMethod) {
 Assert-Equal $effectiveDuo "push" "Default push when no config and no param"
 
 # Test 4: Method to vpncli input mapping
-$map = @{ "push" = "1"; "phone" = "2"; "sms" = "3" }
+$map = @{ "push" = "1"; "phone" = "2" }
 foreach ($method in $map.Keys) {
     $duoInput = "1"
     if ($method -eq "phone") { $duoInput = "2" }
-    elseif ($method -eq "sms") { $duoInput = "3" }
     Assert-Equal $duoInput $map[$method] "Method '$method' maps to vpncli input '$($map[$method])'"
 }
 
@@ -188,6 +187,7 @@ if (Test-Path $cmdPath) {
     $cmdContent = Get-Content $cmdPath -Raw
     Assert-Match $cmdContent '-DuoMethod %1' "vpn-connect.cmd forwards DuoMethod"
     Assert-Match $cmdContent 'if.*%~1.*==' "vpn-connect.cmd checks for empty arg"
+    Assert-True ($cmdContent -notmatch 'sms') "vpn-connect.cmd no longer advertises sms"
 } else {
     Write-Host "  [SKIP] vpn-connect.cmd not found" -ForegroundColor Yellow
 }
@@ -283,8 +283,9 @@ $ps1Path = Join-Path $PSScriptRoot "..\vpn-auto-connect.ps1"
 # Get-DuoCliInput
 Assert-Equal (Get-DuoCliInput -EffectiveDuo "push" -TotpCode "") "1" "Get-DuoCliInput push -> 1"
 Assert-Equal (Get-DuoCliInput -EffectiveDuo "phone" -TotpCode "") "2" "Get-DuoCliInput phone -> 2"
-Assert-Equal (Get-DuoCliInput -EffectiveDuo "sms" -TotpCode "") "3" "Get-DuoCliInput sms -> 3"
 Assert-Equal (Get-DuoCliInput -EffectiveDuo "passcode" -TotpCode "123456") "123456" "Get-DuoCliInput passcode -> TOTP"
+Assert-True (Test-SupportedDuoMethod -Method "push") "push remains a supported DUO method"
+Assert-True (-not (Test-SupportedDuoMethod -Method "sms")) "sms is no longer a supported DUO method"
 
 # GUI result markers
 Assert-Equal (Get-VpnResultMarker -State "CONNECTED") "VPN_RESULT=CONNECTED" "Connected marker format"
@@ -336,6 +337,29 @@ $origGetVpnTunnelAddress = ${function:Get-VpnTunnelAddress}
 Assert-Equal (Resolve-VpnDisplayState -Stats @{ State = "Unknown"; ClientIP = "10.200.1.20" } -Tunnel $null) "Connected" "Display state overrides Unknown when client IP exists"
 Assert-Equal (Resolve-VpnDisplayState -Stats @{ State = "Unknown"; ClientIP = "" } -Tunnel ([pscustomobject]@{ IPAddress = "10.200.1.20" })) "Connected" "Display state overrides Unknown when tunnel exists"
 Assert-Equal (Resolve-VpnDisplayState -Stats @{ State = "Disconnected"; ClientIP = "" } -Tunnel $null) "Disconnected" "Display state preserves non-Unknown state"
+Assert-Equal (Normalize-DuoPushTarget -Value "xxx-3808") "3808" "Push target normalizes to last 4 digits"
+
+$pushText = @"
+1-Push to XXX-3808
+2-Push to XXX-4123
+3-Phone call
+"@
+$pushOptions = @(Get-DuoPushOptions -Text $pushText)
+Assert-Equal $pushOptions.Count 2 "Push option parser finds multiple push entries"
+Assert-Equal $pushOptions[0].Number "1" "First push option keeps menu number"
+Assert-Equal $pushOptions[1].Suffix "4123" "Push option parser extracts suffix"
+$selectedBySuffix = Select-DuoPushOption -Options $pushOptions -ConfiguredSuffix "4123" -NonInteractive
+Assert-Equal $selectedBySuffix.Number "2" "Push option selector matches configured suffix"
+$singlePush = @(Get-DuoPushOptions -Text "1-Push to XXX-3808")
+Assert-Equal (Select-DuoPushOption -Options $singlePush -ConfiguredSuffix "" -NonInteractive).Number "1" "Single push option auto-selects"
+
+$missingSuffixOutput = (& { Select-DuoPushOption -Options $pushOptions -ConfiguredSuffix "9999" -NonInteractive } *>&1 | Out-String)
+Assert-Match $missingSuffixOutput 'did not match' "Missing configured push suffix reports a clear error"
+Assert-Match $missingSuffixOutput 'Detected DUO push options' "Missing configured push suffix prints detected options"
+
+$multiNonInteractiveOutput = (& { Select-DuoPushOption -Options $pushOptions -ConfiguredSuffix "" -NonInteractive } *>&1 | Out-String)
+Assert-Match $multiNonInteractiveOutput 'Multiple DUO push targets detected' "Multiple push targets without config fail in non-interactive mode"
+Assert-Match $multiNonInteractiveOutput 'vpn-config set push-target' "Non-interactive failure suggests push-target config"
 function Get-VpnSessionStats {
     return @{
         State = "Connected"
@@ -471,7 +495,11 @@ Assert-Match $scriptText 'Wait-ForVpnTunnelAfterMfa[\s\S]*MaxSeconds = 50' "Post
 Assert-Match $scriptText 'BannerFirstSendSeconds = 4' "Post-MFA banner confirmation starts after 4s"
 Assert-Match $scriptText "StepLabel 'banner-certificate'" "Post-MFA banner/certificate y retry exists"
 Assert-True ($scriptText -notmatch "duo-retry") "Live connect path does not retry DUO input"
+Assert-True ($scriptText -notmatch 'sms') "PowerShell script no longer advertises sms"
 Assert-Match $scriptText 'Stop-VpnCliForFailureAndDrain' "Failure path drains vpncli output after stopping process"
+
+$guiScript = Get-Content (Join-Path $PSScriptRoot "..\tools\vpn-gui.py") -Raw
+Assert-True ($guiScript -notmatch '"sms"|SMS') "GUI no longer offers sms"
 
 $diagNoAdapter = (& { Write-VpnTunnelDiagnostics -CiscoAdapters @() -CiscoAddresses @() -TenAddresses @() } *>&1 | Out-String)
 Assert-Match $diagNoAdapter 'vpncli: unavailable' "Diagnostics show missing vpncli"

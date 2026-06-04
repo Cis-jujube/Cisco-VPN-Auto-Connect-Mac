@@ -16,7 +16,7 @@
 # ============================================================
 # -Connect                连接 VPN / Connect to VPN
 # -Disconnect             断开 VPN / Disconnect VPN
-# -DuoMethod <method>     DUO 验证方式 / DUO method: push(推送), phone(电话), sms(短信), passcode(TOTP)
+# -DuoMethod <method>     DUO 验证方式 / DUO method: push(推送), phone(电话), passcode(TOTP)
 # -Status                 显示连接状态 / Show connection status
 # -SaveCredentials        保存凭据 / Save credentials (legacy single-config)
 # -SaveTOTP               保存 TOTP 密钥 / Save TOTP secret for auto passcode
@@ -35,7 +35,7 @@
 param(
     [string]$VpnServer,
     [string]$VpnGroup,
-    [ValidateSet("push", "phone", "sms", "passcode")]
+    [ValidateSet("push", "phone", "passcode")]
     [string]$DuoMethod = "push",
     [switch]$Connect,
     [switch]$Disconnect,
@@ -57,6 +57,7 @@ param(
     [switch]$Config,
     [switch]$Brief,
     [switch]$Reset,
+    [switch]$NonInteractiveMfa,
     [switch]$LoadFunctionsOnly
 )
 
@@ -206,6 +207,13 @@ function Add-VpnProfile {
     if (-not $protocol) { $protocol = "ssl" }
 
     Write-Host ""
+    Write-Host "[*] Optional: DUO Push target phone suffix (last 4 digits)" -ForegroundColor Gray
+    Write-Host "    Mainly needed when your DUO account has multiple phone numbers." -ForegroundColor DarkGray
+    Write-Host "    If you only have one approved phone, leave blank and skip it." -ForegroundColor DarkGray
+    $duoPushTarget = Read-Host "  Push target suffix (optional, e.g. 3808)"
+    if ($duoPushTarget) { $duoPushTarget = Normalize-DuoPushTarget -Value $duoPushTarget.Trim() }
+
+    Write-Host ""
     $username = Read-Host "Username"
     $securePassword = Read-Host "Password" -AsSecureString
     $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
@@ -222,6 +230,9 @@ function Add-VpnProfile {
         Group    = $group
         Port     = $port
         Protocol = $protocol
+    }
+    if ($duoPushTarget) {
+        $config.DuoPushTarget = $duoPushTarget
     }
     $config | ConvertTo-Json | Set-Content "$profileDir\config.json" -Encoding UTF8
 
@@ -318,6 +329,7 @@ function Show-Config {
     if (-not $hasTotp) { $hasTotp = Test-Path $TotpFile }
     $totpStatus = if ($hasTotp) { "saved" } else { "not set" }
     Write-Host "TOTP Secret:    $totpStatus" -ForegroundColor $(if ($hasTotp) { "Green" } else { "Yellow" })
+    Write-Host "Push Target:    optional, mainly for multiple DUO phone numbers" -ForegroundColor DarkGray
 
     Write-Host ""
 
@@ -345,6 +357,9 @@ function Show-Config {
             Write-Host "    Port:     $($cfg.Port)" -ForegroundColor Gray
             Write-Host "    Protocol: $($cfg.Protocol)" -ForegroundColor Gray
             Write-Host "    Group:    $($cfg.Group)" -ForegroundColor Gray
+            $pushTarget = if ($cfg.PSObject.Properties.Name -contains 'DuoPushTarget' -and $cfg.DuoPushTarget) { $cfg.DuoPushTarget } else { "(blank, auto)" }
+            Write-Host "    PushTo:   $pushTarget" -ForegroundColor Gray
+            Write-Host "              optional; mainly for accounts with multiple DUO phones" -ForegroundColor DarkGray
         } else {
             Write-Host "    (no config)" -ForegroundColor DarkGray
         }
@@ -372,6 +387,7 @@ function Show-Config {
 
     Write-Host "-------------------------------------------" -ForegroundColor DarkGray
     Write-Host "  * = active profile" -ForegroundColor Gray
+    Write-Host "  PushTo = optional; leave blank if only one phone is enrolled in DUO" -ForegroundColor Gray
     Write-Host ""
 }
 
@@ -433,6 +449,7 @@ function Edit-VpnProfile {
     Write-Host "  Current group:    $($config.Group)" -ForegroundColor Gray
     Write-Host "  Current port:     $($config.Port)" -ForegroundColor Gray
     Write-Host "  Current protocol: $($config.Protocol)" -ForegroundColor Gray
+    Write-Host "  Current PushTo:   $($config.DuoPushTarget)" -ForegroundColor Gray
     Write-Host ""
 
     $server = Read-Host "New server (Enter to keep)"
@@ -447,6 +464,21 @@ function Edit-VpnProfile {
 
     $protocol = Read-Host "New protocol (Enter to keep)"
     if ($protocol) { $config.Protocol = $protocol }
+
+    Write-Host "Optional: DUO push target phone suffix, mainly for multiple-phone accounts." -ForegroundColor DarkGray
+    $pushTarget = Read-Host "New push target suffix (Enter to keep, '-' to clear)"
+    if ($pushTarget -eq "-") {
+        if ($config.PSObject.Properties.Name -contains 'DuoPushTarget') {
+            $config.PSObject.Properties.Remove('DuoPushTarget')
+        }
+    } elseif ($pushTarget) {
+        $normalizedTarget = Normalize-DuoPushTarget -Value $pushTarget.Trim()
+        if (-not $normalizedTarget) {
+            Write-Host "[!!] Push target must be the last 4 digits of the DUO phone number, e.g. 3808" -ForegroundColor Red
+            return
+        }
+        $config | Add-Member -NotePropertyName "DuoPushTarget" -NotePropertyValue $normalizedTarget -Force
+    }
 
     $config | ConvertTo-Json | Set-Content "$profileDir\config.json" -Encoding UTF8
 
@@ -531,17 +563,38 @@ function Set-VpnSetting {
             return
         }
         "duo" {
-            if ($Value -notin @("push", "phone", "sms", "passcode")) {
-                Write-Host "[!!] DUO method must be: push, phone, sms, or passcode" -ForegroundColor Red
+            if ($Value -notin @("push", "phone", "passcode")) {
+                Write-Host "[!!] DUO method must be: push, phone, or passcode" -ForegroundColor Red
                 return
             }
             # Store default DUO method in config
             $config | Add-Member -NotePropertyName "DuoMethod" -NotePropertyValue $Value -Force
             Write-Host "[OK] Default DUO method set to: $Value ($scope)" -ForegroundColor Green
         }
+        "push-target" {
+            if (-not $Value -or $Value -in @("-", "clear", "none")) {
+                if ($config.PSObject.Properties.Name -contains 'DuoPushTarget') {
+                    $config.PSObject.Properties.Remove('DuoPushTarget')
+                }
+                Write-Host "[OK] DUO push target cleared ($scope)" -ForegroundColor Green
+            } else {
+                $suffix = ($Value -replace '\D', '')
+                if ($suffix.Length -lt 4) {
+                    Write-Host "[!!] Push target must be the last 4 digits of the DUO phone number, e.g. 3808" -ForegroundColor Red
+                    return
+                }
+                if ($suffix.Length -gt 4) {
+                    $suffix = $suffix.Substring($suffix.Length - 4)
+                }
+                $config | Add-Member -NotePropertyName "DuoPushTarget" -NotePropertyValue $suffix -Force
+                Write-Host "[OK] DUO push target set to: $suffix ($scope)" -ForegroundColor Green
+                Write-Host "     Optional; mainly for accounts with multiple DUO phone numbers." -ForegroundColor Gray
+                Write-Host "     If only one phone is enrolled, you can leave it blank." -ForegroundColor Gray
+            }
+        }
         default {
             Write-Host "[!!] Unknown setting: $Key" -ForegroundColor Red
-            Write-Host "     Valid keys: server, group, port, protocol, user, duo" -ForegroundColor Gray
+            Write-Host "     Valid keys: server, group, port, protocol, user, duo, push-target" -ForegroundColor Gray
             return
         }
     }
@@ -845,7 +898,7 @@ function Test-VpnAgentRunning {
         $serviceCandidates = @(Get-CimInstance Win32_Service -ErrorAction Stop | Where-Object {
             ($_.Name -match 'vpnagent') -or
             ($_.DisplayName -match 'Cisco.*VPN Agent|Cisco Secure Client.*VPN Agent|AnyConnect.*VPN Agent') -or
-            ($_.PathName -match 'vpnagent(?:d)?\.exe')
+            ($_.PathName -match 'vpnagent(d)?\.exe')
         })
     } catch {
         $serviceCandidates = @()
@@ -898,12 +951,114 @@ function Get-VpnGroupSelection {
 }
 
 function Get-DuoCliInput {
-    param([string]$EffectiveDuo, [string]$TotpCode)
+    param(
+        [string]$EffectiveDuo,
+        [string]$TotpCode
+    )
     switch ($EffectiveDuo) {
         "phone" { return "2" }
-        "sms" { return "3" }
         "passcode" { return $TotpCode }
         default { return "1" }
+    }
+}
+
+function Test-SupportedDuoMethod {
+    param([string]$Method)
+    return $Method -in @("push", "phone", "passcode")
+}
+
+function Normalize-DuoPushTarget {
+    param([string]$Value)
+    if (-not $Value) { return "" }
+    $digits = ($Value -replace '\D', '')
+    if ($digits.Length -lt 4) { return "" }
+    if ($digits.Length -gt 4) {
+        return $digits.Substring($digits.Length - 4)
+    }
+    return $digits
+}
+
+function Get-DuoPushOptions {
+    param([string]$Text)
+    $options = @()
+    if (-not $Text) { return $options }
+    $lines = [regex]::Split($Text, "\r?\n")
+    foreach ($line in $lines) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed) { continue }
+        $match = [regex]::Match($trimmed, '^([0-9]+)\s*[-.)]\s*(.+)$')
+        if (-not $match.Success) { continue }
+        $label = $match.Groups[2].Value.Trim()
+        if ($label -notmatch 'Push') { continue }
+        $suffix = ""
+        $digitMatches = [regex]::Matches($label, '[0-9]{4}')
+        if ($digitMatches.Count -gt 0) {
+            $suffix = $digitMatches[$digitMatches.Count - 1].Value
+        }
+        $options += [pscustomobject]@{
+            Number = $match.Groups[1].Value
+            Label = $label
+            Suffix = $suffix
+        }
+    }
+    return $options
+}
+
+function Write-DuoPushOptions {
+    param($Options)
+    if (-not $Options) { return }
+    Write-Host "[*] Detected DUO push options:" -ForegroundColor Yellow
+    foreach ($option in $Options) {
+        $suffixInfo = ""
+        if ($option.Suffix) {
+            $suffixInfo = " (suffix {0})" -f $option.Suffix
+        }
+        Write-Host ("     [{0}] {1}{2}" -f $option.Number, $option.Label, $suffixInfo) -ForegroundColor Gray
+    }
+}
+
+function Select-DuoPushOption {
+    param(
+        $Options,
+        [string]$ConfiguredSuffix,
+        [switch]$NonInteractive
+    )
+    if (-not $Options -or $Options.Count -eq 0) {
+        return $null
+    }
+    if ($Options.Count -eq 1) {
+        return $Options[0]
+    }
+
+    $normalizedSuffix = Normalize-DuoPushTarget -Value $ConfiguredSuffix
+    if ($normalizedSuffix) {
+        $matched = @($Options | Where-Object { $_.Suffix -eq $normalizedSuffix })
+        if ($matched.Count -eq 1) {
+            return $matched[0]
+        }
+        Write-Host "[!!] Configured DUO push target $normalizedSuffix did not match the current MFA menu." -ForegroundColor Red
+        Write-DuoPushOptions -Options $Options
+        return $null
+    }
+
+    Write-DuoPushOptions -Options $Options
+    if ($NonInteractive) {
+        Write-Host "[!!] Multiple DUO push targets detected. Set one with: vpn-config set push-target <last4>" -ForegroundColor Red
+        return $null
+    }
+
+    Write-Host "[*] Multiple DUO push targets detected." -ForegroundColor Yellow
+    Write-Host "    Optional setting: vpn-config set push-target <last4>" -ForegroundColor Gray
+    Write-Host "    If you only have one approved phone on your account, you can leave this setting blank." -ForegroundColor Gray
+    while ($true) {
+        $choice = (Read-Host "Choose DUO push option number").Trim()
+        if (-not $choice) { continue }
+        $selected = @($Options | Where-Object { $_.Number -eq $choice })
+        if ($selected.Count -eq 1) {
+            return $selected[0]
+        }
+        $validNumbers = @($Options | ForEach-Object { $_.Number }) -join ", "
+        Write-Host ("[!!] Invalid choice. Please enter one of: {0}" -f $validNumbers) -ForegroundColor Red
     }
 }
 
@@ -1015,9 +1170,13 @@ function Get-VpnSessionStats {
                 'Duration:\s*([0-9:]+)'
             )
             Remaining = Get-VpnSessionStatLine -Output $output -Patterns @(
-                '剩余(?:会话)?(?:时间|时长)：\s*(.+)',
-                '(?:会话)?(?:时间|时长)剩余：\s*(.+)',
-                'Remaining(?: Session)? Time:\s*(.+)',
+                '剩余会话时间：\s*(.+)',
+                '剩余时间：\s*(.+)',
+                '剩余时长：\s*(.+)',
+                '时间剩余：\s*(.+)',
+                '时长剩余：\s*(.+)',
+                'Remaining Session Time:\s*(.+)',
+                'Remaining Time:\s*(.+)',
                 'Session Time Remaining:\s*(.+)',
                 'Time Remaining:\s*(.+)'
             )
@@ -1092,7 +1251,7 @@ function Resolve-VpnDisplayState {
         return $state
     }
 
-    $hasClientIp = $Stats -and $Stats.ClientIP -and $Stats.ClientIP -notmatch '^(?:0\.0\.0\.0)?\s*$'
+    $hasClientIp = $Stats -and $Stats.ClientIP -and $Stats.ClientIP -notmatch '^0\.0\.0\.0\s*$|^\s*$'
     if ($Tunnel -or $hasClientIp) {
         return "Connected"
     }
@@ -1103,10 +1262,10 @@ function Test-VpnSessionConnected {
     $stats = Get-VpnSessionStats
     if (-not $stats) { return $false }
 
-    if ($stats.State -match '(^|[^A-Za-z])(Connected|Established)($|[^A-Za-z])|已连接|已連線') {
+    if ($stats.State -match "(^|[^A-Za-z])(Connected|Established)($|[^A-Za-z])|已连接|已連線") {
         return $true
     }
-    if ($stats.ClientIP -and $stats.ClientIP -notmatch '^(?:0\.0\.0\.0)?\s*$') {
+    if ($stats.ClientIP -and $stats.ClientIP -notmatch "^0\.0\.0\.0\s*$|^\s*$") {
         return $true
     }
     return $false
@@ -1320,11 +1479,36 @@ function New-VpnCliSession {
     $psi.CreateNoWindow = $true
 
     $proc = [System.Diagnostics.Process]::Start($psi)
+    $sync = New-Object object
+    $buffer = New-Object System.Text.StringBuilder
+    $outputTask = [System.Threading.Tasks.Task]::Run([Action]{
+        try {
+            while (-not $proc.HasExited) {
+                $line = $proc.StandardOutput.ReadLine()
+                if ($null -eq $line) { break }
+                [System.Threading.Monitor]::Enter($sync)
+                try { [void]$buffer.AppendLine($line) } finally { [System.Threading.Monitor]::Exit($sync) }
+                if ($ShowOutput) { Write-Host $line }
+            }
+        } catch { }
+    })
+    $errorTask = [System.Threading.Tasks.Task]::Run([Action]{
+        try {
+            while (-not $proc.HasExited) {
+                $line = $proc.StandardError.ReadLine()
+                if ($null -eq $line) { break }
+                [System.Threading.Monitor]::Enter($sync)
+                try { [void]$buffer.AppendLine($line) } finally { [System.Threading.Monitor]::Exit($sync) }
+                if ($ShowOutput) { Write-Host $line }
+            }
+        } catch { }
+    })
     return @{
         Process    = $proc
-        Buffer     = (New-Object System.Text.StringBuilder)
+        Buffer     = $buffer
+        Sync       = $sync
         ShowOutput = $ShowOutput
-        Tasks      = @()
+        Tasks      = @($outputTask, $errorTask)
         OutputDrained = $false
     }
 }
@@ -1391,6 +1575,24 @@ function Wait-VpnStepOrDelay {
         Start-Sleep -Milliseconds 200
     }
     return 'timeout'
+}
+
+function Wait-ForDuoPushOptions {
+    param(
+        $Session,
+        [int]$MaxSeconds = 15
+    )
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $MaxSeconds) {
+        $text = Get-VpnSessionText -Session $Session
+        $options = @(Get-DuoPushOptions -Text $text)
+        if ($options.Count -gt 0) {
+            return $options
+        }
+        if ($Session.Process -and $Session.Process.HasExited) { break }
+        Start-Sleep -Milliseconds 250
+    }
+    return @()
 }
 
 function Wait-ForVpnIpAfterExit {
@@ -1501,8 +1703,10 @@ function Invoke-VpnConnectTimed {
         [string]$ConnectAddr,
         $Cred,
         $Config,
-        [string]$DuoInput,
+        [string]$DuoInputFallback,
         [string]$EffectiveDuo,
+        [string]$ConfiguredPushTarget,
+        [switch]$NonInteractiveMfa,
         [bool]$ShowCliOutput
     )
     $proc = $Session.Process
@@ -1539,6 +1743,29 @@ function Invoke-VpnConnectTimed {
 
     Write-Host "[5/6] Waiting for MFA prompt..." -ForegroundColor Gray
     Start-Sleep -Seconds 8
+
+    $duoInput = $null
+    if ($EffectiveDuo -eq "push") {
+        $pushOptions = @(Wait-ForDuoPushOptions -Session $Session -MaxSeconds 8)
+        if ($pushOptions.Count -gt 0) {
+            $selectedPush = Select-DuoPushOption -Options $pushOptions -ConfiguredSuffix $ConfiguredPushTarget -NonInteractive:$NonInteractiveMfa
+            if (-not $selectedPush) {
+                return @{ Connected = $false; CertAccepted = $false; AuthFailed = $false }
+            }
+            $duoInput = $selectedPush.Number
+            $suffixNote = if ($selectedPush.Suffix) { " suffix $($selectedPush.Suffix)" } else { "" }
+            Write-Host "[*] Selected DUO push option [$($selectedPush.Number)]$suffixNote" -ForegroundColor Gray
+        } else {
+            if ($ConfiguredPushTarget) {
+                Write-Host "[!!] Could not detect the DUO push menu, so the configured push target '$ConfiguredPushTarget' could not be matched." -ForegroundColor Red
+                return @{ Connected = $false; CertAccepted = $false; AuthFailed = $false }
+            }
+            Write-Host "[..] No explicit DUO push menu detected; defaulting to option 1." -ForegroundColor DarkGray
+            $duoInput = Get-DuoCliInput -EffectiveDuo $EffectiveDuo
+        }
+    } else {
+        $duoInput = $DuoInputFallback
+    }
 
     Write-Host "[5/6] Sending DUO option ($DuoInput)..." -ForegroundColor Gray
     Send-VpnCliLine -Process $proc -Line $DuoInput -Session $Session -StepLabel 'duo'
@@ -1620,12 +1847,24 @@ function Connect-Vpn {
     if (-not $PSBoundParameters.ContainsKey('DuoMethod') -and $config.DuoMethod) {
         $effectiveDuo = $config.DuoMethod
     }
+    if (-not (Test-SupportedDuoMethod -Method $effectiveDuo)) {
+        Write-Host "[!!] Unsupported DUO method '$effectiveDuo'. Supported methods: push, phone, passcode" -ForegroundColor Red
+        Write-Host "     If this came from saved config, run: vpn-config set duo push" -ForegroundColor Yellow
+        Write-VpnResultMarker -State FAILED
+        return
+    }
 
     Write-Host "[->] Connecting to: $server" -ForegroundColor Cyan
     Write-Host "     User: $($cred.Username)" -ForegroundColor Gray
     Write-Host "     DUO method: $effectiveDuo" -ForegroundColor Gray
+    $configuredPushTarget = Normalize-DuoPushTarget -Value $config.DuoPushTarget
+    if ($configuredPushTarget) {
+        Write-Host "     Push target: $configuredPushTarget" -ForegroundColor Gray
+    } elseif ($effectiveDuo -eq "push") {
+        Write-Host "     Push target: (blank, auto; optional if only one DUO phone)" -ForegroundColor DarkGray
+    }
 
-    # Determine DUO second factor input (1=push, 2=phone, 3=sms, or TOTP)
+    # Determine DUO second factor input (push is resolved from the live MFA menu if needed).
     $totpForDuo = $null
     if ($effectiveDuo -eq "passcode") {
         $totpForDuo = Get-TOTPCode
@@ -1672,8 +1911,10 @@ function Connect-Vpn {
             ConnectAddr   = $connectAddr
             Cred          = $cred
             Config        = $config
-            DuoInput      = $duoInput
+            DuoInputFallback = $duoInput
             EffectiveDuo  = $effectiveDuo
+            ConfiguredPushTarget = $configuredPushTarget
+            NonInteractiveMfa = $NonInteractiveMfa
             ShowCliOutput = $showCliOutput
         }
         $result = Invoke-VpnConnectTimed @connectParams
@@ -1823,7 +2064,7 @@ if ($Help) {
     Write-Host "  vpn-config add             Add new VPN profile"
     Write-Host "  vpn-config use <name>      Switch active profile"
     Write-Host "  vpn-config set <k> <v>     Change a single setting"
-    Write-Host "    Keys: server, group, port, protocol, user, duo"
+    Write-Host "    Keys: server, group, port, protocol, user, duo, push-target"
     Write-Host "  vpn-config totp            Save / update TOTP secret"
     Write-Host "  vpn-config rm <name>       Remove a profile"
     Write-Host "  vpn-config reset-all       Full reset and re-setup"
@@ -1831,7 +2072,6 @@ if ($Help) {
     Write-Host "DUO METHODS:" -ForegroundColor Yellow
     Write-Host "  push       (default) Send push notification to phone"
     Write-Host "  phone      Call your phone for verification"
-    Write-Host "  sms        Send SMS passcode"
     Write-Host "  passcode   Auto-generate TOTP code (fully automatic)"
     Write-Host ""
     Write-Host "EXAMPLES:" -ForegroundColor Yellow

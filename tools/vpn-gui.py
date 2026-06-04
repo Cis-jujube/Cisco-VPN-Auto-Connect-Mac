@@ -4,7 +4,7 @@
 Features:
   - 一键连接/断开 / One-click connect/disconnect
   - Profile 管理 (添加/切换/删除) / Profile management
-  - DUO 方法选择 (push/phone/sms/passcode) / DUO method selection
+  - DUO 方法选择 (push/phone/passcode) / DUO method selection
   - 实时状态显示 / Real-time connection status
   - Catppuccin Mocha 配色 / Catppuccin Mocha theme
 """
@@ -465,7 +465,7 @@ class App:
         duo_row.pack(fill="x", pady=(6, 0))
 
         for method, label in [("push", "Push"), ("phone", "Phone"),
-                               ("sms", "SMS"), ("passcode", "TOTP")]:
+                               ("passcode", "TOTP")]:
             rb = tk.Radiobutton(
                 duo_row, text=label, variable=self.duo_var, value=method,
                 font=ui_font(9, text=label), bg=C["surface"], fg=C["text"],
@@ -732,11 +732,19 @@ class App:
             combo.bind("<FocusOut>", _focus_out)
             return combo
 
+        def _make_hint(parent, text):
+            tk.Label(
+                parent, text=text, font=ui_font(8, text=text),
+                bg=C["bg"], fg=C["muted"], justify="left", wraplength=360
+            ).pack(anchor="w", pady=(4, 0))
+
         # ===== DKU VPN form =====
         dku_form = tk.Frame(dlg, bg=C["bg"])
         dku_netid = _make_row(dku_form, "NetID", "your-netid")
         dku_password = _make_pw_row(dku_form)
         dku_group = _make_group_row(dku_form)
+        dku_push_target = _make_row(dku_form, "PushTo", "optional: 3808")
+        _make_hint(dku_form, "Optional. Mainly for accounts with multiple DUO phone numbers. If you only have one approved phone, leave it blank.")
 
         # ===== Custom form =====
         custom_form = tk.Frame(dlg, bg=C["bg"])
@@ -747,16 +755,18 @@ class App:
         custom_port = _make_row(custom_form, "Port", "443")
         custom_protocol = _make_row(custom_form, "Protocol", "ssl")
         custom_group = _make_group_row(custom_form)
+        custom_push_target = _make_row(custom_form, "PushTo", "optional: 3808")
+        _make_hint(custom_form, "Optional. Mainly for accounts with multiple DUO phone numbers. If you only have one approved phone, leave it blank.")
 
         def toggle_preset():
             if preset_var.get() == "dku":
                 custom_form.pack_forget()
                 dku_form.pack(fill="x", padx=20, pady=(8, 0))
-                dlg.geometry("420x300")
+                dlg.geometry("420x360")
             else:
                 dku_form.pack_forget()
                 custom_form.pack(fill="x", padx=20, pady=(8, 0))
-                dlg.geometry("420x440")
+                dlg.geometry("420x500")
 
         preset_var.trace_add("write", lambda *_: toggle_preset())
         toggle_preset()
@@ -774,6 +784,7 @@ class App:
                 server = "portal.dukekunshan.edu.cn"
                 port = "443"
                 protocol = "ssl"
+                push_target = dku_push_target.get().strip()
             else:
                 name = custom_name.get().strip()
                 username = custom_username.get().strip()
@@ -782,6 +793,7 @@ class App:
                 port = custom_port.get().strip() or "443"
                 protocol = custom_protocol.get().strip() or "ssl"
                 group = custom_group.get().strip() or "-Default-"
+                push_target = custom_push_target.get().strip()
                 if not name:
                     messagebox.showerror("Error", "Name is required for custom profile.")
                     return
@@ -792,7 +804,9 @@ class App:
                     messagebox.showerror("Error", "Server is required for custom profile.")
                     return
 
-            self._save_profile(name, server, group, port, protocol, username, password)
+            if push_target.startswith("optional:"):
+                push_target = ""
+            self._save_profile(name, server, group, port, protocol, username, password, push_target)
             dlg.destroy()
 
         # -- Buttons --
@@ -803,13 +817,16 @@ class App:
         FlatButton(btn_row, "[ Cancel ]", dlg.destroy,
                    bg=C["overlay"], fg=C["text"]).pack(side="left", padx=(8, 0))
 
-    def _save_profile(self, name, server, group, port, protocol, username, password):
+    def _save_profile(self, name, server, group, port, protocol, username, password, push_target=""):
         """Save a profile to disk with DPAPI-encrypted credentials."""
         profile_dir = PROFILES_DIR / name
         profile_dir.mkdir(parents=True, exist_ok=True)
 
         # Save config
         cfg = {"Server": server, "Group": group, "Port": port, "Protocol": protocol}
+        digits = re.sub(r"\D", "", push_target or "")
+        if len(digits) >= 4:
+            cfg["DuoPushTarget"] = digits[-4:]
         (profile_dir / "config.json").write_text(json.dumps(cfg, indent=2))
 
         # Save credentials (call PowerShell to encrypt with DPAPI)
@@ -942,6 +959,7 @@ class App:
                 text_area.insert("end", f"    Port:     {cfg.get('Port', '-')}\n")
                 text_area.insert("end", f"    Protocol: {cfg.get('Protocol', '-')}\n")
                 text_area.insert("end", f"    Group:    {cfg.get('Group', '-')}\n")
+                text_area.insert("end", f"    PushTo:   {cfg.get('DuoPushTarget', '(blank, auto)')}\n")
             else:
                 text_area.insert("end", "    (no config found)\n")
             text_area.insert("end", "\n")
@@ -1324,7 +1342,7 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
         method = self.duo_var.get()
         self.session_label.config(text="")
         self._log(f"Connecting... (DUO: {method})")
-        self._run_vpn_cmd(["-Connect", "-DuoMethod", method], timeout=240)
+        self._run_vpn_cmd(["-Connect", "-DuoMethod", method, "-NonInteractiveMfa"], timeout=240)
 
     def _disconnect(self):
         self._log("Disconnecting...")
