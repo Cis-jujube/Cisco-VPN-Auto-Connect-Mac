@@ -663,23 +663,6 @@ class App:
             if show:
                 entry.config(show=show)
             entry.pack(side="left", fill="x", expand=True, padx=(8, 0))
-            if placeholder:
-                entry.insert(0, placeholder)
-                entry.config(fg=C["muted"])
-
-                def _on_in(e, ent=entry, ph=placeholder):
-                    if ent.get() == ph:
-                        ent.delete(0, "end")
-                        ent.config(fg=C["text"])
-
-                def _on_out(e, ent=entry, ph=placeholder):
-                    if not ent.get().strip():
-                        ent.delete(0, "end")
-                        ent.insert(0, ph)
-                        ent.config(fg=C["muted"])
-
-                entry.bind("<FocusIn>", _on_in)
-                entry.bind("<FocusOut>", _on_out)
             return entry
 
         def _make_pw_row(parent, label="Password"):
@@ -710,26 +693,19 @@ class App:
             btn.pack(side="left", padx=(4, 0))
             return entry
 
-        def _make_group_row(parent):
+        def _make_dku_group_row(parent):
             row = tk.Frame(parent, bg=C["bg"])
             row.pack(fill="x", pady=(6, 0))
             tk.Label(row, text="Group", font=ui_font(9, text="Group"),
                      bg=C["bg"], fg=C["subtext"], width=10, anchor="w").pack(side="left")
-            combo = ttk.Combobox(row, font=ui_font(10, text="-Default-"), state="normal")
+            combo = ttk.Combobox(
+                row,
+                font=ui_font(10, text="-Default-"),
+                state="readonly",
+                values=["-Default-", "Library Resources Only"],
+            )
             combo.pack(side="left", fill="x", expand=True, padx=(8, 0))
-            combo.insert(0, "-Default-")
-            combo.config(foreground=C["muted"])
-
-            def _focus_in(e):
-                if combo.get() == "-Default-":
-                    combo.delete(0, "end")
-                    combo.config(foreground=C["text"])
-            def _focus_out(e):
-                if not combo.get().strip():
-                    combo.insert(0, "-Default-")
-                    combo.config(foreground=C["muted"])
-            combo.bind("<FocusIn>", _focus_in)
-            combo.bind("<FocusOut>", _focus_out)
+            combo.set("-Default-")
             return combo
 
         def _make_hint(parent, text):
@@ -740,33 +716,43 @@ class App:
 
         # ===== DKU VPN form =====
         dku_form = tk.Frame(dlg, bg=C["bg"])
-        dku_netid = _make_row(dku_form, "NetID", "your-netid")
+        dku_netid = _make_row(dku_form, "NetID")
+        _make_hint(dku_form, "Example: your-netid")
         dku_password = _make_pw_row(dku_form)
-        dku_group = _make_group_row(dku_form)
-        dku_push_target = _make_row(dku_form, "PushTo", "optional: 3808")
+        dku_group = _make_dku_group_row(dku_form)
+        _make_hint(dku_form, "Choose DKU group: -Default- or Library Resources Only")
+        dku_push_target = _make_row(dku_form, "PushTo")
+        _make_hint(dku_form, "Optional example: 1234")
         _make_hint(dku_form, "Optional. Mainly for accounts with multiple DUO phone numbers. If you only have one approved phone, leave it blank.")
 
         # ===== Custom form =====
         custom_form = tk.Frame(dlg, bg=C["bg"])
-        custom_name = _make_row(custom_form, "Name", "my-vpn")
-        custom_username = _make_row(custom_form, "Username", "username")
+        custom_name = _make_row(custom_form, "Name")
+        _make_hint(custom_form, "Example: my-vpn")
+        custom_username = _make_row(custom_form, "Username")
+        _make_hint(custom_form, "Example: username")
         custom_password = _make_pw_row(custom_form)
-        custom_server = _make_row(custom_form, "Server", "vpn.example.com")
-        custom_port = _make_row(custom_form, "Port", "443")
-        custom_protocol = _make_row(custom_form, "Protocol", "ssl")
-        custom_group = _make_group_row(custom_form)
-        custom_push_target = _make_row(custom_form, "PushTo", "optional: 3808")
+        custom_server = _make_row(custom_form, "Server")
+        _make_hint(custom_form, "Example: vpn.example.com")
+        custom_port = _make_row(custom_form, "Port")
+        _make_hint(custom_form, "Optional example: 443")
+        custom_protocol = _make_row(custom_form, "Protocol")
+        _make_hint(custom_form, "Optional example: ssl")
+        custom_group = _make_row(custom_form, "Group")
+        _make_hint(custom_form, "Optional. Leave blank if this VPN does not require a group.")
+        custom_push_target = _make_row(custom_form, "PushTo")
+        _make_hint(custom_form, "Optional example: 1234")
         _make_hint(custom_form, "Optional. Mainly for accounts with multiple DUO phone numbers. If you only have one approved phone, leave it blank.")
 
         def toggle_preset():
             if preset_var.get() == "dku":
                 custom_form.pack_forget()
                 dku_form.pack(fill="x", padx=20, pady=(8, 0))
-                dlg.geometry("420x360")
+                dlg.geometry("420x420")
             else:
                 dku_form.pack_forget()
                 custom_form.pack(fill="x", padx=20, pady=(8, 0))
-                dlg.geometry("420x500")
+                dlg.geometry("420x620")
 
         preset_var.trace_add("write", lambda *_: toggle_preset())
         toggle_preset()
@@ -792,7 +778,7 @@ class App:
                 server = custom_server.get().strip()
                 port = custom_port.get().strip() or "443"
                 protocol = custom_protocol.get().strip() or "ssl"
-                group = custom_group.get().strip() or "-Default-"
+                group = custom_group.get().strip()
                 push_target = custom_push_target.get().strip()
                 if not name:
                     messagebox.showerror("Error", "Name is required for custom profile.")
@@ -803,9 +789,6 @@ class App:
                 if not server:
                     messagebox.showerror("Error", "Server is required for custom profile.")
                     return
-
-            if push_target.startswith("optional:"):
-                push_target = ""
             self._save_profile(name, server, group, port, protocol, username, password, push_target)
             dlg.destroy()
 
