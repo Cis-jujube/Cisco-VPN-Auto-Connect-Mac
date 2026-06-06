@@ -21,7 +21,7 @@ User configuration is encrypted with Windows DPAPI.
 
 | Feature | Description |
 |---|---|
-| One-click connect | `vpn-connect` completes login (~30s + DUO approval) |
+| One-click connect | `vpn-connect` completes login (~20s + DUO approval) |
 | GUI | `vpn-gui` or double-click `vpn-gui.bat` |
 | DUO 2FA | Push or TOTP (passcode) |
 | Multi-phone DUO Push | Save a preferred DUO menu number for accounts with multiple DUO phones |
@@ -333,7 +333,7 @@ Cisco Secure Client 自动连接工具，支持 DUO 2FA、多配置管理、GUI 
 
 | 功能 | 说明 |
 |---|---|
-| 一键连接 | `vpn-connect` 自动完成登录（约 30s + DUO 审批） |
+| 一键连接 | `vpn-connect` 自动完成登录（约 20s + DUO 审批） |
 | GUI 界面 | `vpn-gui` 或双击 `vpn-gui.bat` |
 | DUO 双因素 | Push / TOTP（passcode）两种方式 |
 | 多手机号 DUO Push | 多个 DUO 手机号时，可保存首选 DUO 菜单序号 |
