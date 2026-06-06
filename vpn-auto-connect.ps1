@@ -1235,7 +1235,7 @@ function Get-VpnGroupSelection {
     param(
         $Config,
         $Session = $null,
-        [int]$MenuWaitSeconds = 4
+        [int]$MenuWaitSeconds = 1
     )
 
     $requestedGroup = if ($Config) { [string]$Config.Group } else { "" }
@@ -1313,7 +1313,7 @@ function Get-VpnGroupMenuOptions {
 function Wait-ForVpnGroupMenuOptions {
     param(
         $Session,
-        [int]$WaitSeconds = 4
+        [int]$WaitSeconds = 1
     )
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt $WaitSeconds) {
@@ -2267,7 +2267,10 @@ function Wait-ForVpnTunnelAfterMfa {
     $lastSendSecond = -1
     $acceptLogWritten = $false
     while ($sw.Elapsed.TotalSeconds -lt $MaxSeconds) {
-        if (Test-VpnConnectedByIp) { return $true }
+        if (Test-VpnConnectedByIp) {
+            [void](Send-VpnCliLineIfAlive -Process $proc -Line "exit" -Session $Session -StepLabel 'exit-on-tunnel')
+            return $true
+        }
         if ($proc -and $proc.HasExited) {
             Write-Host "[..] vpncli exited after MFA/banner wait; checking tunnel IP for 5s..." -ForegroundColor DarkGray
             return (Wait-ForVpnIpAfterExit -MaxSeconds 5 -PollMilliseconds $PollMilliseconds)
@@ -2283,6 +2286,9 @@ function Wait-ForVpnTunnelAfterMfa {
             $lastSendSecond = $elapsedWholeSeconds
         }
         Start-Sleep -Milliseconds $PollMilliseconds
+    }
+    if (Test-VpnConnectedByIp) {
+        [void](Send-VpnCliLineIfAlive -Process $proc -Line "exit" -Session $Session -StepLabel 'exit-on-tunnel')
     }
     return (Test-VpnConnectedByIp)
 }
@@ -2376,24 +2382,24 @@ function Invoke-VpnConnectTimed {
 
     # Fixed delays between stdin writes (vpncli on Windows does not expose prompts on stdout).
     # After MFA input, keep banner/cert acceptance active while polling for the tunnel.
-    Start-Sleep -Seconds 1
+    Start-Sleep -Milliseconds 500
 
     Write-Host "[1/6] Connecting to $ConnectAddr..." -ForegroundColor Gray
     Send-VpnCliLine -Process $proc -Line "connect $ConnectAddr" -Session $Session -StepLabel 'connect'
-    Start-Sleep -Seconds 3
+    Start-Sleep -Milliseconds 1500
 
     $groupSel = Get-VpnGroupSelection -Config $Config -Session $Session
     Write-Host "[2/6] Selecting group ($groupSel)..." -ForegroundColor Gray
     Send-VpnCliLine -Process $proc -Line $groupSel -Session $Session -StepLabel 'group'
-    Start-Sleep -Seconds 1
+    Start-Sleep -Milliseconds 500
 
     Write-Host "[3/6] Sending username ($($Cred.Username))..." -ForegroundColor Gray
     Send-VpnCliLine -Process $proc -Line $Cred.Username -Session $Session -StepLabel 'username'
-    Start-Sleep -Seconds 1
+    Start-Sleep -Milliseconds 500
 
     Write-Host "[4/6] Sending password..." -ForegroundColor Gray
     Send-VpnCliLine -Process $proc -Line $Cred.Password -Session $Session -StepLabel 'password'
-    Start-Sleep -Seconds 3
+    Start-Sleep -Milliseconds 500
 
     if ($proc.HasExited) {
         Read-VpnCliOutputFinal -Session $Session -MaxSeconds 5
@@ -2408,7 +2414,7 @@ function Invoke-VpnConnectTimed {
     }
 
     Write-Host "[5/6] Waiting for MFA prompt..." -ForegroundColor Gray
-    Start-Sleep -Seconds 3
+    Start-Sleep -Milliseconds 500
 
     $duoInput = $null
     if ($EffectiveDuo -eq "push") {
@@ -2425,7 +2431,8 @@ function Invoke-VpnConnectTimed {
     }
 
     if ($connected -or (Test-VpnConnectedByIp)) {
-        return Complete-VpnConnectTimed -Session $Session -Connected $true -ShowCliOutput $ShowCliOutput -ReadSeconds 6 -PushPath:($EffectiveDuo -eq "push") -DiagnosticMaskValues $diagnosticMaskValues
+        [void](Send-VpnCliLineIfAlive -Process $proc -Line "exit" -Session $Session -StepLabel 'exit-on-tunnel')
+        return Complete-VpnConnectTimed -Session $Session -Connected $true -ShowCliOutput $ShowCliOutput -ReadSeconds 3 -PushPath:($EffectiveDuo -eq "push") -DiagnosticMaskValues $diagnosticMaskValues
     }
 
     if ($proc.HasExited) {
@@ -2434,7 +2441,8 @@ function Invoke-VpnConnectTimed {
 
     $connected = Wait-ForVpnTunnelAfterMfa -Session $Session -MaxSeconds 50 -PollMilliseconds 300 -BannerFirstSendSeconds 2 -ResendSeconds 1
 
-    return Complete-VpnConnectTimed -Session $Session -Connected $connected -ShowCliOutput $ShowCliOutput -ReadSeconds 10 -PushPath:($EffectiveDuo -eq "push") -DiagnosticMaskValues $diagnosticMaskValues
+    $readSeconds = if ($connected -or (Test-VpnConnectedByIp)) { 3 } else { 8 }
+    return Complete-VpnConnectTimed -Session $Session -Connected $connected -ShowCliOutput $ShowCliOutput -ReadSeconds $readSeconds -PushPath:($EffectiveDuo -eq "push") -DiagnosticMaskValues $diagnosticMaskValues
 }
 
 # Invoke-VpnConnectPrompted removed: vpncli does not expose prompts on redirected stdout (Windows).

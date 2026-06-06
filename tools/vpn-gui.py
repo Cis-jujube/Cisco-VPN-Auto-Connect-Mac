@@ -1725,7 +1725,7 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
                             "组件",
                             "update checks",
                         ])
-                        poll_seconds = 90 if extended_poll else 20
+                        poll_seconds = 90 if extended_poll else 3
                         if extended_poll:
                             self.root.after(0, self._log, f"[..] Stage 2 extended to {poll_seconds}s because Cisco is still downloading/updating components")
                         ip = self._poll_vpn_ip(max_seconds=poll_seconds, interval=0.5)

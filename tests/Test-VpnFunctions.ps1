@@ -577,7 +577,11 @@ Assert-Match $scriptText 'Waiting for DUO approval \(up to 50s\)' "DUO wait mess
 Assert-Match $scriptText 'Wait-ForVpnTunnelAfterMfa[\s\S]*MaxSeconds = 50' "Post-MFA tunnel wait uses 50s"
 Assert-Match $scriptText 'BannerFirstSendSeconds = 2' "Post-MFA banner confirmation starts after 2s"
 Assert-Match $scriptText "StepLabel 'banner-certificate'" "Post-MFA banner/certificate y retry exists"
-Assert-Match $scriptText 'Start-Sleep -Seconds 3' "MFA pre-wait shortened to 3s"
+Assert-Match $scriptText 'Start-Sleep -Milliseconds 500' "MFA pre-wait uses 500ms fixed sleep"
+Assert-Match $scriptText 'MenuWaitSeconds = 1' "Group menu wait defaults to 1s"
+Assert-Match $scriptText 'function Wait-ForVpnGroupMenuOptions[\s\S]*WaitSeconds = 1' "Wait-ForVpnGroupMenuOptions defaults to 1s"
+Assert-Match $scriptText "StepLabel 'exit-on-tunnel'" "Tunnel UP sends exit to vpncli before read_output"
+Assert-Match $scriptText '-ReadSeconds 3' "Success path uses ReadSeconds 3"
 Assert-True ($scriptText -notmatch 'function Wait-ForDuoPushOptions') "Wait-ForDuoPushOptions helper removed"
 Assert-True ($scriptText -notmatch 'function Select-DuoPushOption') "Select-DuoPushOption removed"
 Assert-True ($scriptText -notmatch 'function Get-DuoPushOptions') "Get-DuoPushOptions removed"
@@ -597,6 +601,26 @@ Assert-True ($scriptText -notmatch "Please tap 'Approve' on your DUO mobile push
 Assert-Match $scriptText 'function Resolve-VpnStatusServer' "PowerShell script defines shared status-server resolver"
 Assert-Match $scriptText '\[OK\] VPN connected: \$server' "vpn-status / connect success include resolved server in success text"
 
+# Connect timing profiler (mirror mode)
+$timingScriptPath = Join-Path $PSScriptRoot "Measure-VpnConnectTiming.ps1"
+Assert-True (Test-Path $timingScriptPath) "Measure-VpnConnectTiming.ps1 exists"
+$timingScript = Get-Content $timingScriptPath -Raw
+Assert-Match $timingScript 'Invoke-VpnConnectTimedMirror' "Timing script defines mirror connect path"
+Assert-Match $timingScript 'Wait-SleepWithProbe' "Timing script probes buffer during fixed sleeps"
+Assert-Match $timingScript 'timing-reports' "Timing script writes reports under timing-reports"
+Assert-Match $timingScript 'pre_connect    = 500' "Timing recommendations map pre_connect to 500ms"
+Assert-Match $timingScript 'after_connect  = 1500' "Timing recommendations map after_connect to 1500ms"
+Assert-Match $timingScript 'MenuWaitSeconds = 1' "Timing mirror uses 1s group menu wait"
+Assert-Match $timingScript 'Get-TimingRecommendations' "Timing script generates sleep recommendations"
+
+$timingCmdPath = Join-Path $PSScriptRoot "..\cmd\vpn-timing.cmd"
+if (Test-Path $timingCmdPath) {
+    $timingCmd = Get-Content $timingCmdPath -Raw
+    Assert-Match $timingCmd 'Measure-VpnConnectTiming\.ps1' "vpn-timing.cmd launches timing profiler"
+} else {
+    Write-Host "  [SKIP] vpn-timing.cmd not found" -ForegroundColor Yellow
+}
+
 $guiScript = Get-Content (Join-Path $PSScriptRoot "..\tools\vpn-gui.py") -Raw
 Assert-True ($guiScript -notmatch '"sms"|SMS') "GUI no longer offers sms"
 Assert-True ($guiScript -notmatch 'NonInteractiveMfa') "GUI connect no longer passes NonInteractiveMfa"
@@ -608,6 +632,7 @@ Assert-Match $guiScript 'preset_dialog_height = "420x360" if edit_mode else "420
 Assert-Match $guiScript 'vpn\.duke\.edu' "GUI Duke preset uses vpn.duke.edu"
 Assert-Match $guiScript 'INTL-DUKE' "GUI Duke preset includes Duke-specific group options"
 Assert-Match $guiScript 'delay_ms=1500' "GUI connected-stats refresh shortened to 1500ms"
+Assert-Match $guiScript 'poll_seconds = 90 if extended_poll else 3' "GUI Stage 2 default poll is 3s (90s when Cisco downloading)"
 Assert-Match $guiScript '_poll_vpn_ip\(max_seconds=poll_seconds, interval=0\.5\)' "GUI Stage 2 VPN IP polling uses configurable timeout with 0.5s interval"
 Assert-Match $guiScript 'Stage 2 extended to .*Cisco is still downloading/updating components' "GUI extends Stage 2 when Cisco downloader is still running"
 Assert-Match $guiScript 'status_text = f"Connected: \{server\}" if server else "Connected"' "GUI connected status includes resolved server"
