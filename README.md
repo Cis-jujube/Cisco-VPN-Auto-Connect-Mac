@@ -21,7 +21,7 @@ User configuration is encrypted with Windows DPAPI.
 
 | Feature | Description |
 |---|---|
-| One-click connect | `vpn-connect` completes login (~40s + DUO approval) |
+| One-click connect | `vpn-connect` completes login (~30s + DUO approval) |
 | GUI | `vpn-gui` or double-click `vpn-gui.bat` |
 | DUO 2FA | Push or TOTP (passcode) |
 | Multi-phone DUO Push | Save a preferred DUO menu number for accounts with multiple DUO phones |
@@ -129,7 +129,7 @@ vpn-gui
 3. Choose the appropriate Duke group. Start with `INTL-DUKE` (default)
 4. Choose **DUO Method**, save, then connect
 5. Duke preset connections send only `connect vpn.duke.edu`; Cisco and the Duke VPN service negotiate the lower-level protocol, and the script maps your saved group name to the live Cisco menu number at connect time
-6. On the first Duke connect, Cisco may spend extra time on update checks or component downloads before the tunnel IP appears; wait for the GUI to finish the extended status poll
+6. On the first Duke connect, Cisco may spend extra time on update checks or component downloads before the tunnel IP appears; the GUI extends Stage 2 IP polling to **90s** in that case (default **3s** otherwise)
 
 Duke preset groups:
 
@@ -333,7 +333,7 @@ Cisco Secure Client 自动连接工具，支持 DUO 2FA、多配置管理、GUI 
 
 | 功能 | 说明 |
 |---|---|
-| 一键连接 | `vpn-connect` 自动完成登录（约 40s + DUO 审批） |
+| 一键连接 | `vpn-connect` 自动完成登录（约 30s + DUO 审批） |
 | GUI 界面 | `vpn-gui` 或双击 `vpn-gui.bat` |
 | DUO 双因素 | Push / TOTP（passcode）两种方式 |
 | 多手机号 DUO Push | 多个 DUO 手机号时，可保存首选 DUO 菜单序号 |
@@ -441,7 +441,7 @@ vpn-gui
 3. 选择对应的 Duke 组，优先使用 `INTL-DUKE`（默认）
 4. 选择 **DUO Method**，保存后再连接
 5. Duke 预设连接时只发送 `connect vpn.duke.edu`；底层协议由 Cisco 和 Duke VPN 服务端协商，脚本会在连接时把你保存的组名映射成 Cisco 当前菜单里的正确序号
-6. 第一次连 Duke 时，Cisco 可能会先做更新检查或下载组件，隧道 IP 出现会更慢；等 GUI 的扩展状态轮询跑完再判断是否成功
+6. 第一次连 Duke 时，Cisco 可能会先做更新检查或下载组件，隧道 IP 出现会更慢；此时 GUI 会把 Stage 2 IP 轮询延长到 **90s**（平时默认 **3s**）
 
 Duke 预设可选组：
 

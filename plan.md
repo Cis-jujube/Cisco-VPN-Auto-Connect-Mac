@@ -31,7 +31,7 @@
 
 **固定 sleep 合计：4.0s**（不含组菜单最多 1s、不含 DUO 审批与隧道建立）。
 
-**经验耗时（README）：** 约 **40s + DUO 审批**（非硬编码上限；收紧后脚本侧固定等待更少）。
+**经验耗时（README）：** 约 **30s + DUO 审批**（非硬编码上限；随网络与 Push 延迟波动）。
 
 **脚本侧理论上限（仅计时逻辑）：** 4s 固定 + 1s 组菜单 + 50s MFA 轮询 + 3s 读输出 ≈ **58s**（不含 `Stop-CiscoClientBlockers`、网络与 DUO 人工审批）。
 
@@ -134,7 +134,7 @@
 | 文档位置 | 文档写法 | 当前代码 |
 |----------|----------|----------|
 | `AGENTS.md` Connect Flow | 已与 2026-06-07 收紧时序对齐 | 见 AGENTS.md |
-| `README.md` | 一键连接约 **40s + DUO** | 经验值，非代码常量 |
+| `README.md` | 一键连接约 **30s + DUO** | 经验值，非代码常量 |
 | `README.md` | TOTP 每 **30 秒** | 与 `Get-TOTPCode` 一致 |
 | `README.md` | Duke 首次连接 GUI 延长 status poll | 与 GUI Stage 2 **90s** 扩展一致 |
 
