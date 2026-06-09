@@ -3,4 +3,4 @@
 @REM Usage: vpn-timing
 @REM        vpn-timing -Preset dku -DuoMethod push
 @REM        vpn-timing -Runs 3
-@powershell -ExecutionPolicy Bypass -File "%~dp0..\tests\Measure-VpnConnectTiming.ps1" %*
+@powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\tests\Measure-VpnConnectTiming.ps1" %*

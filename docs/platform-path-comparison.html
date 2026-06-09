@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VPN Auto-Connect vs vpnc — 平台与通路对比</title>
+  <style>
+    :root {
+      --bg: #1e1e2e;
+      --surface: #313244;
+      --overlay: #45475a;
+      --text: #cdd6f4;
+      --subtext: #a6adc8;
+      --muted: #585b70;
+      --blue: #89b4fa;
+      --green: #a6e3a1;
+      --red: #f38ba8;
+      --yellow: #f9e2af;
+      --teal: #94e2d5;
+      --peach: #fab387;
+      --mauve: #cba6f7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem clamp(1rem, 4vw, 3rem);
+    }
+    h1, h2, h3 { color: var(--blue); margin-top: 2rem; }
+    h1 { margin-top: 0; font-size: 1.75rem; }
+    p, li { color: var(--subtext); }
+    a { color: var(--teal); }
+    .subtitle { color: var(--muted); font-size: 0.95rem; margin-bottom: 2rem; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--muted);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+    .card h3 { margin-top: 0; font-size: 1.1rem; }
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      margin-right: 0.35rem;
+      margin-bottom: 0.35rem;
+    }
+    .tag-win { background: #1e3a5f; color: var(--blue); }
+    .tag-mac { background: #2d3b2d; color: var(--green); }
+    .tag-linux { background: #3b2d2d; color: var(--peach); }
+    .tag-secure { background: #2d3b3b; color: var(--teal); }
+    .tag-plain { background: #3b2d2d; color: var(--red); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.92rem;
+    }
+    th, td {
+      border: 1px solid var(--overlay);
+      padding: 0.65rem 0.8rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: var(--overlay); color: var(--text); }
+    td code, th code {
+      background: var(--crust, #11111b);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.85em;
+      color: var(--yellow);
+    }
+    .diagram {
+      background: var(--surface);
+      border: 1px solid var(--muted);
+      border-radius: 12px;
+      padding: 1.5rem;
+      overflow-x: auto;
+      margin: 1.5rem 0;
+    }
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+    .lane {
+      flex: 1 1 320px;
+      min-width: 280px;
+    }
+    .lane-title {
+      text-align: center;
+      font-weight: 600;
+      color: var(--mauve);
+      margin-bottom: 0.75rem;
+      font-size: 0.95rem;
+    }
+    .step {
+      background: var(--overlay);
+      border-left: 4px solid var(--blue);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+      font-size: 0.88rem;
+    }
+    .step.storage { border-left-color: var(--teal); }
+    .step.cli { border-left-color: var(--yellow); }
+    .step.auth { border-left-color: var(--peach); }
+    .step.ok { border-left-color: var(--green); }
+    .arrow {
+      text-align: center;
+      color: var(--muted);
+      font-size: 1.2rem;
+      padding: 0.15rem 0;
+    }
+    .note {
+      background: #252535;
+      border-left: 4px solid var(--yellow);
+      padding: 0.85rem 1rem;
+      border-radius: 0 8px 8px 0;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    .expand {
+      background: linear-gradient(135deg, #252535 0%, #2a3040 100%);
+      border: 1px solid var(--muted);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-top: 2rem;
+    }
+    .expand h2 { margin-top: 0; color: var(--green); }
+    svg text { font-family: "Segoe UI", sans-serif; fill: var(--subtext); font-size: 12px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1rem; font-size: 0.85rem; }
+    .legend span::before {
+      content: "";
+      display: inline-block;
+      width: 12px; height: 12px;
+      border-radius: 3px;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+    }
+    .legend .l-storage::before { background: var(--teal); }
+    .legend .l-cli::before { background: var(--yellow); }
+    .legend .l-auth::before { background: var(--peach); }
+    .legend .l-ok::before { background: var(--green); }
+  </style>
+</head>
+<body>
+
+<h1>vpn-auto-connect vs <a href="https://github.com/pomegranar/vpnc">pomegranar/vpnc</a></h1>
+<p class="subtitle">存储加密差异、程序通路对比、以及跨平台扩展可能性（2026-06-08）</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>vpn-auto-connect（本项目）</h3>
+    <span class="tag tag-win">Windows 为主</span>
+    <span class="tag tag-secure">DPAPI 加密</span>
+    <p>PowerShell + Python GUI，驱动 Cisco <code>vpncli.exe</code>，多 Profile、DUO/TOTP、定时 stdin 连接流。</p>
+  </div>
+  <div class="card">
+    <h3>vpnc（Duke 社区脚本）</h3>
+    <span class="tag tag-mac">macOS</span>
+    <span class="tag tag-linux">Linux</span>
+    <span class="tag tag-plain">明文凭据</span>
+    <p>Bash/Zsh 安装脚本，把 NetID/密码写入配置文件，通过 shell 重定向喂给 Cisco <code>vpn -s</code>。</p>
+  </div>
+</div>
+
+<h2>1. 存储与加密：核心差别</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>维度</th>
+      <th>vpn-auto-connect</th>
+      <th>vpnc</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>凭据位置</td>
+      <td><code>~/.vpn-auto-connect/profiles/&lt;name&gt;/credentials.xml</code><br>（JSON，Password 字段为密文）</td>
+      <td><code>~/.config/vpnc.conf</code><br>（多行明文脚本：connect / group / user / password / duo）</td>
+    </tr>
+    <tr>
+      <td>加密方式</td>
+      <td><strong>Windows DPAPI</strong>（<code>ProtectedData.Protect</code>，<code>CurrentUser</code> scope）<br>仅当前 Windows 用户 + 当前机器可解密</td>
+      <td><strong>无应用层加密</strong><br>仅 <code>chmod 600</code> 限制文件权限；README 明确警告需全盘加密</td>
+    </tr>
+    <tr>
+      <td>TOTP 密钥</td>
+      <td>DPAPI 加密存 <code>totp.xml</code></td>
+      <td>不支持 TOTP 全自动；固定发送 <code>1</code>（DUO Push）</td>
+    </tr>
+    <tr>
+      <td>多 Profile</td>
+      <td>支持（dku / duke / custom）</td>
+      <td>单一 Duke VPN 配置</td>
+    </tr>
+    <tr>
+      <td>跨用户/跨机迁移</td>
+      <td>不能直接拷贝密文到其他用户或电脑</td>
+      <td>拷贝明文 conf 即可（安全性更差）</td>
+    </tr>
+    <tr>
+      <td>威胁模型</td>
+      <td>同账户其他进程可读密文但需 DPAPI 解密；防 casual 文件窥探</td>
+      <td>任何能读 home 目录的进程/备份/同步工具可直接拿到密码</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <strong>结论：</strong>本项目在 Windows 上比 vpnc 更安全——vpnc 把密码以明文写在配置文件里，只靠文件权限和磁盘加密兜底。vpnc 说「Don't expect it to work on Windows」主要是因为它依赖 Unix shell 路径 <code>/opt/cisco/secureclient/bin/vpn</code> 和 bash 别名，而不是因为 Windows 没有加密 API（实际上 Windows 的 DPAPI 比 vpnc 的明文存储更强）。
+</div>
+
+<h2>2. 程序通路对比</h2>
+
+<div class="diagram">
+  <div class="flow">
+    <div class="lane">
+      <div class="lane-title">vpn-auto-connect（Windows）</div>
+      <div class="step">用户：vpn-connect / GUI Connect</div>
+      <div class="arrow">↓</div>
+      <div class="step">vpn-gui.py 或 cmd 入口</div>
+      <div class="arrow">↓</div>
+      <div class="step">vpn-auto-connect.ps1 -Connect</div>
+      <div class="arrow">↓</div>
+      <div class="step storage">Load profile config + DPAPI 解密 credentials</div>
+      <div class="arrow">↓</div>
+      <div class="step cli">Stop-CiscoClientBlockers（杀 csc_ui / vpnui / vpncli）</div>
+      <div class="arrow">↓</div>
+      <div class="step cli">Spawn vpncli.exe -s（stdin 重定向）</div>
+      <div class="arrow">↓</div>
+      <div class="step auth">Timed stdin：connect → group → user → password → DUO/TOTP → cert y</div>
+      <div class="arrow">↓</div>
+      <div class="step ok">Poll Cisco 隧道适配器 / 10.x IP → 成功</div>
+    </div>
+
+    <div class="lane">
+      <div class="lane-title">vpnc（macOS / Linux）</div>
+      <div class="step">用户：vpnc（shell alias）</div>
+      <div class="arrow">↓</div>
+      <div class="step">alias 定义于 ~/.zshrc 或 ~/.bashrc</div>
+      <div class="arrow">↓</div>
+      <div class="step storage">读取 ~/.config/vpnc.conf（明文 5 行脚本）</div>
+      <div class="arrow">↓</div>
+      <div class="step cli">/opt/cisco/secureclient/bin/vpn -s &lt; vpnc.conf</div>
+      <div class="arrow">↓</div>
+      <div class="step auth">stdin 一次性注入：connect vpn.duke.edu → 2 → netid → password → 1</div>
+      <div class="arrow">↓</div>
+      <div class="step ok">用户在终端手动 Approve DUO Push</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="l-storage">存储/配置</span>
+    <span class="l-cli">Cisco CLI 进程</span>
+    <span class="l-auth">认证/MFA</span>
+    <span class="l-ok">连接结果</span>
+  </div>
+</div>
+
+<h2>3. 架构总览（SVG）</h2>
+
+<div class="diagram">
+<svg viewBox="0 0 920 420" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#89b4fa"/>
+    </marker>
+  </defs>
+
+  <!-- Windows lane background -->
+  <rect x="20" y="20" width="420" height="380" rx="12" fill="#313244" stroke="#585b70"/>
+  <text x="40" y="48" fill="#89b4fa" font-size="14" font-weight="600">vpn-auto-connect · Windows</text>
+
+  <!-- vpnc lane background -->
+  <rect x="480" y="20" width="420" height="380" rx="12" fill="#313244" stroke="#585b70"/>
+  <text x="500" y="48" fill="#a6e3a1" font-size="14" font-weight="600">vpnc · macOS / Linux</text>
+
+  <!-- Windows boxes -->
+  <rect x="40" y="70" width="160" height="44" rx="8" fill="#45475a"/>
+  <text x="55" y="97" fill="#cdd6f4" font-size="11">GUI / vpn-connect.cmd</text>
+
+  <rect x="240" y="70" width="180" height="44" rx="8" fill="#45475a"/>
+  <text x="252" y="97" fill="#cdd6f4" font-size="11">vpn-auto-connect.ps1</text>
+
+  <rect x="40" y="150" width="380" height="52" rx="8" fill="#2d3b3b" stroke="#94e2d5"/>
+  <text x="55" y="172" fill="#94e2d5" font-size="11">~/.vpn-auto-connect/profiles/*/credentials.xml</text>
+  <text x="55" y="190" fill="#a6adc8" font-size="10">Password = DPAPI Base64 ciphertext</text>
+
+  <rect x="40" y="230" width="380" height="44" rx="8" fill="#45475a"/>
+  <text x="55" y="257" fill="#cdd6f4" font-size="11">vpncli.exe -s  (Program Files x86)</text>
+
+  <rect x="40" y="300" width="380" height="44" rx="8" fill="#45475a"/>
+  <text x="55" y="327" fill="#cdd6f4" font-size="11">Timed stdin + tunnel IP poll + DUO/TOTP</text>
+
+  <rect x="40" y="360" width="120" height="32" rx="6" fill="#2d3b2d" stroke="#a6e3a1"/>
+  <text x="62" y="381" fill="#a6e3a1" font-size="11">Connected</text>
+
+  <!-- vpnc boxes -->
+  <rect x="500" y="70" width="120" height="44" rx="8" fill="#45475a"/>
+  <text x="530" y="97" fill="#cdd6f4" font-size="11">vpnc alias</text>
+
+  <rect x="660" y="70" width="220" height="44" rx="8" fill="#45475a"/>
+  <text x="672" y="97" fill="#cdd6f4" font-size="11">bash/zsh shell redirect</text>
+
+  <rect x="500" y="150" width="380" height="52" rx="8" fill="#3b2d2d" stroke="#f38ba8"/>
+  <text x="515" y="172" fill="#f38ba8" font-size="11">~/.config/vpnc.conf  (chmod 600)</text>
+  <text x="515" y="190" fill="#a6adc8" font-size="10">Plaintext netid + password lines</text>
+
+  <rect x="500" y="230" width="380" height="44" rx="8" fill="#45475a"/>
+  <text x="515" y="257" fill="#cdd6f4" font-size="11">/opt/cisco/secureclient/bin/vpn -s</text>
+
+  <rect x="500" y="300" width="380" height="44" rx="8" fill="#45475a"/>
+  <text x="515" y="327" fill="#cdd6f4" font-size="11">Full script stdin + manual DUO approve</text>
+
+  <rect x="500" y="360" width="120" height="32" rx="6" fill="#2d3b2d" stroke="#a6e3a1"/>
+  <text x="522" y="381" fill="#a6e3a1" font-size="11">Connected</text>
+
+  <!-- Arrows Windows -->
+  <line x1="120" y1="114" x2="120" y2="150" stroke="#89b4fa" marker-end="url(#arr)"/>
+  <line x1="200" y1="92" x2="240" y2="92" stroke="#89b4fa" marker-end="url(#arr)"/>
+  <line x1="330" y1="114" x2="330" y2="150" stroke="#89b4fa" marker-end="url(#arr)"/>
+  <line x1="230" y1="202" x2="230" y2="230" stroke="#89b4fa" marker-end="url(#arr)"/>
+  <line x1="230" y1="274" x2="230" y2="300" stroke="#89b4fa" marker-end="url(#arr)"/>
+  <line x1="230" y1="344" x2="100" y2="360" stroke="#89b4fa" marker-end="url(#arr)"/>
+
+  <!-- Arrows vpnc -->
+  <line x1="560" y1="114" x2="560" y2="150" stroke="#a6e3a1" marker-end="url(#arr)"/>
+  <line x1="620" y1="92" x2="660" y2="92" stroke="#a6e3a1" marker-end="url(#arr)"/>
+  <line x1="770" y1="114" x2="690" y2="150" stroke="#a6e3a1" marker-end="url(#arr)"/>
+  <line x1="690" y1="202" x2="690" y2="230" stroke="#a6e3a1" marker-end="url(#arr)"/>
+  <line x1="690" y1="274" x2="690" y2="300" stroke="#a6e3a1" marker-end="url(#arr)"/>
+  <line x1="690" y1="344" x2="560" y2="360" stroke="#a6e3a1" marker-end="url(#arr)"/>
+</svg>
+</div>
+
+<h2>4. 通路细节差异</h2>
+
+<table>
+  <thead>
+    <tr><th>环节</th><th>vpn-auto-connect</th><th>vpnc</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Cisco 二进制</td>
+      <td><code>C:\Program Files (x86)\Cisco\Cisco Secure Client\vpncli.exe</code></td>
+      <td><code>/opt/cisco/secureclient/bin/vpn</code></td>
+    </tr>
+    <tr>
+      <td>stdin 策略</td>
+      <td>分步定时写入；连接中不读 stdout（防阻塞）；结束后读缓冲</td>
+      <td>安装时生成完整脚本，连接时一次性重定向整个文件</td>
+    </tr>
+    <tr>
+      <td>GUI 冲突</td>
+      <td>主动 kill <code>csc_ui</code> / <code>vpnui</code> / 残留 <code>vpncli</code></td>
+      <td>未处理；若 GUI 占用可能失败</td>
+    </tr>
+    <tr>
+      <td>Group 选择</td>
+      <td>解析 live group menu，映射保存的 group 名</td>
+      <td>硬编码 <code>2</code>（Duke 某 group 序号）</td>
+    </tr>
+    <tr>
+      <td>成功判定</td>
+      <td>Cisco 隧道适配器 IPv4 或 10.x 回退</td>
+      <td>依赖 vpn 进程退出；无独立 IP 探测</td>
+    </tr>
+    <tr>
+      <td>Windows 支持</td>
+      <td>一等公民（PowerShell + GUI）</td>
+      <td>附带 <code>vpnc-windows.ahk</code> 实验性方案，非主路径</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="expand">
+  <h2>5. 能否扩大应用范围？</h2>
+  <p><strong>可以，但需要分层移植，不是简单复制 vpnc 或反过来。</strong></p>
+  <ul>
+    <li><strong>连接引擎（可共享思路）：</strong>两边本质都是驱动 Cisco Secure Client 的 <code>-s</code> 非交互模式。Mac/Linux 可移植 PowerShell 里的「分步 stdin + 隧道检测」逻辑到 Bash/Python，路径改为 <code>/opt/cisco/secureclient/bin/vpn</code>。</li>
+    <li><strong>存储层（必须换实现）：</strong>DPAPI 仅 Windows。跨平台方案：
+      <ul>
+        <li>macOS：<code>security find-generic-password</code> / Keychain</li>
+        <li>Linux：<code>secret-tool</code>（libsecret / GNOME Keyring）</li>
+        <li>通用：用户主密码 + <code>age</code> / libsodium 加密 JSON（可跨机，需输入 passphrase）</li>
+      </ul>
+    </li>
+    <li><strong>GUI：</strong>Tkinter 在 Mac/Linux 可用，但需改路径探测、进程管理、图标逻辑。</li>
+    <li><strong>最小扩展路线：</strong>抽象 <code>CredentialStore</code> 接口（encrypt/decrypt/load/save）→ 保留现有 PowerShell 连接核心 → 新增 <code>connect.sh</code> + Keychain/secret-tool 后端。</li>
+    <li><strong>与 vpnc 的关系：</strong>vpnc 可作为 Duke Mac 用户的极简参考，但其明文存储不应照搬；本项目可在 Unix 侧提供「同等便捷 + 更强加密 + 多 profile」的升级版。</li>
+  </ul>
+</div>
+
+<p style="color: var(--muted); font-size: 0.85rem; margin-top: 2.5rem;">
+  Generated for vpn-auto-connect · Open <code>docs/platform-path-comparison.html</code> in a browser.
+</p>
+
+</body>
+</html>

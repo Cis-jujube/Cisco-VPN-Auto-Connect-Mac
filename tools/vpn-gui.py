@@ -75,6 +75,29 @@ def mono_font(size, *styles, text=""):
     return (family, size, *styles)
 
 
+def profile_dialog_target_name(selected_kind, edit_mode, source_profile_name):
+    if selected_kind in {"dku", "duke"}:
+        return selected_kind
+    if edit_mode:
+        return source_profile_name or ""
+    return "__custom__"
+
+
+def profile_dialog_group_preset_state(kind, edit_mode, source_profile_name,
+                                      username, password, group,
+                                      duo_method, push_target):
+    return {
+        "name": kind if kind in {"dku", "duke"} else (source_profile_name if edit_mode else ""),
+        "username": username,
+        "password": password,
+        "group": group,
+        "duo_method": duo_method,
+        "push_target": push_target,
+        "has_password": password.strip() != "",
+        "exists": True,
+    }
+
+
 def _set_windows_app_id():
     if sys.platform != "win32":
         return
@@ -353,7 +376,9 @@ class App:
         if PROFILES_INDEX.exists():
             data = self._read_json_file(PROFILES_INDEX)
             if isinstance(data, list):
-                return data
+                return [str(item).strip() for item in data if str(item).strip()]
+            if isinstance(data, str) and data.strip():
+                return [data.strip()]
         return []
 
     def _load_profile_config(self, name):
@@ -400,7 +425,7 @@ class App:
 
     def _run_ps1_sync(self, args, timeout=30):
         cmd = [
-            self._powershell, "-ExecutionPolicy", "Bypass",
+            self._powershell, "-NoProfile", "-ExecutionPolicy", "Bypass",
             "-File", str(VPN_SCRIPT)
         ] + args
         result = subprocess.run(
@@ -806,7 +831,7 @@ class App:
         if edit_mode and existing_cfg:
             if (existing_cfg.get("Server") or "") == "portal.dukekunshan.edu.cn":
                 preset_default = "dku"
-            elif (existing_cfg.get("Server") or "") == "vpn.duke.edu":
+            elif (existing_cfg.get("Server") or "") in {"vpn.duke.edu", "portal.duke.edu"}:
                 preset_default = "duke"
             else:
                 preset_default = "custom"
@@ -994,11 +1019,7 @@ class App:
             custom_name.config(state="disabled", disabledbackground=C["surface"], disabledforeground=C["muted"])
 
         def _target_name_for_preset(kind):
-            if kind in {"dku", "duke"}:
-                return kind
-            if edit_mode:
-                return profile_name
-            return "__custom__"
+            return profile_dialog_target_name(kind, edit_mode, profile_name)
 
         def _set_password_text(entry, value):
             entry.delete(0, "end")
@@ -1011,7 +1032,7 @@ class App:
             username_value, has_saved_password = self._load_profile_cred(resolved_name) if resolved_name else ("", False)
             defaults = _preset_defaults(selected_kind)
             return {
-                "name": profile_name if edit_mode else (resolved_name or defaults.get("name", "")),
+                "name": resolved_name or defaults.get("name", ""),
                 "username": username_value,
                 "password": "",
                 "server": defaults["server"] if selected_kind in {"dku", "duke"} else ((cfg or {}).get("Server", "")),
@@ -1026,19 +1047,22 @@ class App:
 
         def _collect_group_preset_state(kind, widgets):
             defaults = _preset_defaults(kind)
-            return {
-                "name": profile_name if edit_mode else defaults["name"],
-                "username": _entry_value(widgets["netid"]),
-                "password": widgets["password"].get(),
+            state = profile_dialog_group_preset_state(
+                kind=kind,
+                edit_mode=edit_mode,
+                source_profile_name=profile_name,
+                username=_entry_value(widgets["netid"]),
+                password=widgets["password"].get(),
+                group=widgets["group"].get().strip() or (DUKE_DEFAULT_GROUP if kind == "duke" else "-Default-"),
+                duo_method=widgets["duo_method"].get(),
+                push_target=_entry_value(widgets["push_target"]),
+            )
+            state.update({
                 "server": defaults["server"],
                 "port": defaults["port"],
                 "protocol": defaults["protocol"],
-                "group": widgets["group"].get().strip() or (DUKE_DEFAULT_GROUP if kind == "duke" else "-Default-"),
-                "duo_method": widgets["duo_method"].get(),
-                "push_target": _entry_value(widgets["push_target"]),
-                "has_password": widgets["password"].get().strip() != "",
-                "exists": True,
-            }
+            })
+            return state
 
         def _collect_custom_state():
             return {
@@ -1107,7 +1131,7 @@ class App:
         current_target_name = {"value": _target_name_for_preset(preset_default)}
         draft_states = {current_target_name["value"]: _profile_state_from_disk(current_target_name["value"], preset_default)}
         draft_states[current_target_name["value"]].update({
-            "name": profile_name if edit_mode else draft_states[current_target_name["value"]]["name"],
+            "name": current_target_name["value"] if current_target_name["value"] != "__custom__" else draft_states[current_target_name["value"]]["name"],
             "username": existing_username,
             "password": "",
             "server": (existing_cfg or {}).get("Server", draft_states[current_target_name["value"]]["server"]) if existing_cfg else draft_states[current_target_name["value"]]["server"],
@@ -1171,61 +1195,51 @@ class App:
             current_state["has_password"] = bool(current_state.get("password")) or previous_state.get("has_password", False)
             current_state["exists"] = previous_state.get("exists", True)
             draft_states[current_target_name["value"]] = current_state
+            state = dict(current_state)
+            if current_target_name["value"] == "__custom__":
+                name = state.get("name", "").strip()
+            else:
+                name = current_target_name["value"]
+            username = (state.get("username") or "").strip()
+            password = (state.get("password") or "").strip()
+            server = (state.get("server") or "").strip()
+            port = (state.get("port") or "443").strip() or "443"
+            protocol = (state.get("protocol") or "ssl").strip() or "ssl"
+            group = state.get("group") or ""
+            duo_method = state.get("duo_method") or "push"
+            push_target = state.get("push_target") or ""
+            has_saved_password = bool(state.get("has_password"))
+            exists_on_disk = bool(state.get("exists"))
 
-            save_items = []
-            for target_name, state in draft_states.items():
-                save_state = dict(state)
-                if target_name == "__custom__":
-                    save_name = save_state.get("name", "").strip()
+            if not name:
+                messagebox.showerror("Error", "Name is required for custom profile.")
+                return
+            if not username:
+                messagebox.showerror("Error", f"Username is required for profile '{name}'.")
+                return
+            if not server:
+                messagebox.showerror("Error", f"Server is required for profile '{name}'.")
+                return
+            if not exists_on_disk and not password:
+                if edit_mode:
+                    messagebox.showerror("Error", f"Password is required for new profile '{name}'.")
                 else:
-                    save_name = target_name
-                save_state["resolved_name"] = save_name
-                save_items.append(save_state)
+                    messagebox.showerror("Error", "Password is required unless you keep the current saved password.")
+                return
 
-            if edit_mode:
-                save_items.sort(key=lambda item: item["resolved_name"] == profile_name)
-
-            for state in save_items:
-                name = state.get("resolved_name", "").strip()
-                username = (state.get("username") or "").strip()
-                password = (state.get("password") or "").strip()
-                server = (state.get("server") or "").strip()
-                port = (state.get("port") or "443").strip() or "443"
-                protocol = (state.get("protocol") or "ssl").strip() or "ssl"
-                group = state.get("group") or ""
-                duo_method = state.get("duo_method") or "push"
-                push_target = state.get("push_target") or ""
-                has_saved_password = bool(state.get("has_password"))
-                exists_on_disk = bool(state.get("exists"))
-
-                if not name:
-                    messagebox.showerror("Error", "Name is required for custom profile.")
-                    return
-                if not username:
-                    messagebox.showerror("Error", f"Username is required for profile '{name}'.")
-                    return
-                if not server:
-                    messagebox.showerror("Error", f"Server is required for profile '{name}'.")
-                    return
-                if not exists_on_disk and not password:
-                    if edit_mode:
-                        messagebox.showerror("Error", f"Password is required for new profile '{name}'.")
-                    else:
-                        messagebox.showerror("Error", "Password is required unless you keep the current saved password.")
-                    return
-
-                preserve_password = edit_mode and not password and has_saved_password
-                save_ok = self._save_profile(
-                    name, server, group, port, protocol, username, password,
-                    push_target, duo_method=duo_method, preserve_password=preserve_password,
-                    action="updated" if edit_mode else "added",
-                    set_active=(name == profile_name) if edit_mode else True,
-                    refresh_ui=False
-                )
-                if not save_ok:
-                    return
-                state["exists"] = True
-                state["has_password"] = True if (password or preserve_password) else state.get("has_password", False)
+            preserve_password = edit_mode and not password and has_saved_password
+            save_ok = self._save_profile(
+                name, server, group, port, protocol, username, password,
+                push_target, duo_method=duo_method, preserve_password=preserve_password,
+                action="updated" if edit_mode else "added",
+                set_active=(name == profile_name) if edit_mode else True,
+                refresh_ui=False
+            )
+            if not save_ok:
+                return
+            last_saved_name = name
+            draft_states[current_target_name["value"]]["exists"] = True
+            draft_states[current_target_name["value"]]["has_password"] = True if (password or preserve_password) else has_saved_password
 
             if edit_mode:
                 self._current_profile = profile_name
@@ -1235,7 +1249,11 @@ class App:
                     cfg = self._load_profile_config(self._current_profile)
                     if cfg:
                         self._set_duo_var(self._config_duo_method(cfg))
-                self._log(f"Updated {len(save_items)} profile(s) from one edit session")
+                self._log(f"Updated profile: {name}")
+            else:
+                self._current_profile = last_saved_name or self._load_active_profile()
+                self._refresh_profiles()
+                self._log(f"Added profile: {self._current_profile}")
             dlg.destroy()
 
         # -- Buttons --
@@ -1438,20 +1456,28 @@ class App:
         secs = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
+    @staticmethod
+    def _cap_session_seconds(seconds):
+        if seconds is None:
+            return None
+        return min(max(0, int(seconds)), SESSION_LIMIT_SECONDS)
+
     def _remaining_from_duration(self, duration):
-        elapsed = self._duration_to_seconds(duration)
+        elapsed = self._cap_session_seconds(self._duration_to_seconds(duration))
         if elapsed is None:
             return ""
-        return self._seconds_to_hms(SESSION_LIMIT_SECONDS - elapsed)
+        return self._seconds_to_hms(max(0, SESSION_LIMIT_SECONDS - elapsed))
 
     def _set_session_timer(self, duration, remaining):
-        elapsed_seconds = self._duration_to_seconds(duration)
+        elapsed_seconds = self._cap_session_seconds(self._duration_to_seconds(duration))
         remaining_seconds = self._duration_to_seconds(remaining)
         if elapsed_seconds is None:
             self._session_timer_base = None
             return
         if remaining_seconds is None:
             remaining_seconds = max(0, SESSION_LIMIT_SECONDS - elapsed_seconds)
+        else:
+            remaining_seconds = max(0, min(remaining_seconds, SESSION_LIMIT_SECONDS - elapsed_seconds))
         self._session_timer_base = {
             "elapsed": elapsed_seconds,
             "remaining": remaining_seconds,
@@ -1462,9 +1488,11 @@ class App:
         if not self._session_timer_base:
             return False
         delta = int(time.monotonic() - self._session_timer_base["monotonic"])
-        duration = self._seconds_to_hms(self._session_timer_base["elapsed"] + delta)
-        remaining = self._seconds_to_hms(self._session_timer_base["remaining"] - delta)
-        self.session_label.config(text=f"Remaining: {remaining}  |  Duration: {duration}")
+        elapsed = self._cap_session_seconds(self._session_timer_base["elapsed"] + delta)
+        remaining = max(0, SESSION_LIMIT_SECONDS - elapsed)
+        duration = self._seconds_to_hms(elapsed)
+        remaining_text = self._seconds_to_hms(remaining)
+        self.session_label.config(text=f"Remaining: {remaining_text}  |  Duration: {duration}")
         return True
 
     def _schedule_session_tick(self):
@@ -1496,7 +1524,8 @@ $files = @($paths | Where-Object {{ Test-Path $_ }} | ForEach-Object {{ Get-Item
 if (-not $files -or $files.Count -eq 0) {{ return }}
 $startFile = $files | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $elapsed = [int]((Get-Date) - $startFile.LastWriteTime).TotalSeconds
-if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
+if ($elapsed -lt 0) {{ return }}
+$elapsed = [Math]::Min($elapsed, {SESSION_LIMIT_SECONDS})
 [pscustomobject]@{{
   elapsed = $elapsed
   remaining = [Math]::Max(0, {SESSION_LIMIT_SECONDS} - $elapsed)
@@ -1516,8 +1545,8 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
             if not payload:
                 return {}
             data = json.loads(payload)
-            elapsed = int(data.get("elapsed", 0))
-            remaining = int(data.get("remaining", 0))
+            elapsed = self._cap_session_seconds(int(data.get("elapsed", 0)))
+            remaining = max(0, SESSION_LIMIT_SECONDS - elapsed)
             return {
                 "duration": self._seconds_to_hms(elapsed),
                 "remaining": self._seconds_to_hms(remaining),
@@ -1541,6 +1570,22 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
                  "    Select-Object -First 1 -ExpandProperty IPAddress "
                  "}; "
                  "$addr"],
+                capture_output=True, text=True, timeout=10,
+                startupinfo=_startupinfo(), creationflags=_CREATION_NO_WINDOW
+            )
+            return result.stdout.strip()
+        except Exception:
+            return ""
+
+    def _query_cisco_tunnel_ip(self):
+        try:
+            result = subprocess.run(
+                [self._powershell, "-NoProfile", "-Command",
+                 "$cisco = Get-NetAdapter -ErrorAction SilentlyContinue | "
+                 "Where-Object { $_.Status -eq 'Up' -and ($_.InterfaceDescription -match 'Cisco AnyConnect|Cisco Secure Client' -or $_.Name -match 'Cisco|AnyConnect') }; "
+                 "$cisco | Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | "
+                 "Where-Object { $_.IPAddress -and $_.IPAddress -notmatch '^169\\.254\\.' -and $_.IPAddress -notmatch '^127\\.' } | "
+                 "Select-Object -First 1 -ExpandProperty IPAddress"],
                 capture_output=True, text=True, timeout=10,
                 startupinfo=_startupinfo(), creationflags=_CREATION_NO_WINDOW
             )
@@ -1603,6 +1648,48 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
         except Exception:
             return timing
 
+    def _vpn_server_host(self, server):
+        value = str(server or "").strip()
+        if not value:
+            return ""
+        if value.lower().startswith(("http://", "https://")):
+            value = value.split("://", 1)[1]
+        return value.split(":", 1)[0].strip().lower()
+
+    def _configured_profile_servers(self):
+        hosts = set()
+        for name in self._load_profiles():
+            cfg = self._load_profile_config(name)
+            host = self._vpn_server_host(cfg.get("Server") if cfg else "")
+            if host:
+                hosts.add(host)
+        return hosts
+
+    def _server_matches_configured_profile(self, server):
+        host = self._vpn_server_host(server)
+        if not host:
+            return False
+        return host in self._configured_profile_servers()
+
+    def _is_connected_for_status(self, stats=None):
+        stats = stats or {}
+        server = str(stats.get("server") or "").strip()
+        state = str(stats.get("state") or "")
+        client_ip = str(stats.get("client_ip") or "").strip()
+        cisco_ip = self._query_cisco_tunnel_ip()
+        if server and server != "不可用" and self._server_matches_configured_profile(server):
+            if cisco_ip or self._query_vpn_ip():
+                return True
+            if any(token in state for token in ("Connected", "Established", "已连接", "已連線")):
+                return True
+            if client_ip and client_ip not in ("0.0.0.0", ""):
+                return True
+            return False
+
+        if cisco_ip and self._current_profile_server():
+            return True
+        return False
+
     def _current_profile_server(self):
         display = self.profile_var.get()
         name = self._resolve_profile_name(display) if display else ""
@@ -1614,7 +1701,7 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
     def _resolve_status_server(self, stats=None):
         stats = stats or {}
         server = str(stats.get("server") or "").strip()
-        if server and server != "不可用":
+        if server and server != "不可用" and self._server_matches_configured_profile(server):
             return server
         return self._current_profile_server()
 
@@ -1625,9 +1712,11 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
             stats = self._query_vpn_stats()
             if not stats:
                 return
-            ip = self._query_vpn_ip()
-            if ip:
+            if self._is_connected_for_status(stats):
+                ip = self._query_vpn_ip() or stats.get("client_ip") or ""
                 self.root.after(0, self._set_connected, ip, stats)
+            else:
+                self.root.after(0, self._set_disconnected, stats)
 
         self.root.after(delay_ms, lambda: threading.Thread(target=worker, daemon=True).start())
 
@@ -1695,7 +1784,7 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
             is_connect = "-Connect" in args
             try:
                 cmd = [
-                    self._powershell, "-ExecutionPolicy", "Bypass",
+                    self._powershell, "-NoProfile", "-ExecutionPolicy", "Bypass",
                     "-File", str(VPN_SCRIPT)
                 ] + args
                 self.root.after(0, self._log, f"[..] Start command: vpn-auto-connect.ps1 {' '.join(args)}")
@@ -1790,15 +1879,15 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
         webbrowser.open("https://ip.me/")
 
     def _refresh_status(self):
-        """Check VPN status by looking for the Cisco tunnel IP."""
+        """Check VPN status: connected only when vpncli server matches a profile URL."""
         def worker():
             try:
-                ip = self._query_vpn_ip()
-                if ip:
-                    stats = self._query_vpn_stats()
+                stats = self._query_vpn_stats()
+                if self._is_connected_for_status(stats):
+                    ip = self._query_vpn_ip() or stats.get("client_ip") or ""
                     self.root.after(0, self._set_connected, ip, stats)
                 else:
-                    self.root.after(0, self._set_disconnected, {})
+                    self.root.after(0, self._set_disconnected, stats)
             except Exception:
                 self.root.after(0, self._set_disconnected, {})
 
@@ -1819,7 +1908,10 @@ if ($elapsed -lt 0 -or $elapsed -gt {SESSION_LIMIT_SECONDS}) {{ return }}
         duration = stats.get("duration") or "00:00:00"
         remaining = stats.get("remaining") or self._remaining_from_duration(duration)
         self._set_session_timer(duration, remaining)
-        if remaining:
+        if self._session_timer_base:
+            duration = self._seconds_to_hms(self._session_timer_base["elapsed"])
+            remaining = self._seconds_to_hms(self._session_timer_base["remaining"])
+        if remaining and remaining != "00:00:00":
             self.session_label.config(text=f"Remaining: {remaining}  |  Duration: {duration}")
         else:
             self.session_label.config(text=f"Duration: {duration}")

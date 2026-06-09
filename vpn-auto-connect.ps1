@@ -144,14 +144,22 @@ function Load-Config {
 # ---------- Multi-Profile Management ----------
 function Get-ProfilesIndex {
     if (Test-Path $ProfilesIndex) {
-        return Get-Content $ProfilesIndex -Raw | ConvertFrom-Json
+        $parsed = Get-Content $ProfilesIndex -Raw | ConvertFrom-Json
+        if ($null -eq $parsed) { return @() }
+        if ($parsed -is [string]) { return @($parsed) }
+        return @($parsed)
     }
     return @()
 }
 
 function Save-ProfilesIndex {
     param($Index)
-    $Index | ConvertTo-Json -Depth 3 | Set-Content $ProfilesIndex -Encoding UTF8
+    $normalized = @($Index | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    $json = ConvertTo-Json -InputObject $normalized -Depth 3
+    if ($json -notmatch '^\s*\[') {
+        $json = "[$json]"
+    }
+    $json | Set-Content $ProfilesIndex -Encoding UTF8
 }
 
 function Get-ActiveProfile {
@@ -1210,10 +1218,10 @@ function Test-VpnAgentRunning {
     return $true
 }
 
-# vpn-status: 优先检查 Cisco 隧道网卡，回退到 10.x.x.x IP / Cisco tunnel adapter first, then 10.x.x.x fallback
+# vpn-status: only report connected when vpncli server matches a profile-configured URL
 function Get-VpnStatus {
-    $vpnAdapter = Get-VpnTunnelAddress
-    if ($vpnAdapter) {
+    if (Test-VpnConnectedForStatus) {
+        $vpnAdapter = Get-VpnTunnelAddress
         $stats = Get-VpnSessionStats
         $server = Resolve-VpnStatusServer -Stats $stats
         if ($server) {
@@ -1667,9 +1675,37 @@ function Get-VpnTunnelAddress {
         Select-Object -First 1
 }
 
+function Convert-VpnSessionHmsToSeconds {
+    param([string]$Value)
+    if (-not $Value) { return $null }
+    if ($Value -match '(?:(\d+)\s+days?,?\s*)?(\d{1,2}):(\d{2}):(\d{2})') {
+        $days = if ($Matches[1]) { [int]$Matches[1] } else { 0 }
+        $hours = [int]$Matches[2]
+        $minutes = [int]$Matches[3]
+        $seconds = [int]$Matches[4]
+        return ($days * 86400) + ($hours * 3600) + ($minutes * 60) + $seconds
+    }
+    return $null
+}
+
+function Set-VpnSessionTimingCap {
+    param([hashtable]$Timing)
+    if (-not $Timing) { return }
+    $durationSeconds = Convert-VpnSessionHmsToSeconds -Value $Timing.Duration
+    if ($null -eq $durationSeconds) { return }
+    $durationSeconds = [Math]::Min([Math]::Max(0, $durationSeconds), $VpnSessionLimitSeconds)
+    $durationSpan = [TimeSpan]::FromSeconds($durationSeconds)
+    $remainingSpan = [TimeSpan]::FromSeconds([Math]::Max(0, $VpnSessionLimitSeconds - $durationSeconds))
+    $Timing.Duration = Format-VpnSessionTimeSpan -TimeSpan $durationSpan
+    $Timing.Remaining = Format-VpnSessionTimeSpan -TimeSpan $remainingSpan
+}
+
 function Format-VpnSessionTimeSpan {
     param([TimeSpan]$TimeSpan)
-    return "{0}:{1:00}:{2:00}" -f [int][Math]::Floor($TimeSpan.TotalHours), $TimeSpan.Minutes, $TimeSpan.Seconds
+    $seconds = [Math]::Min([int][Math]::Floor($TimeSpan.TotalSeconds), $VpnSessionLimitSeconds)
+    if ($seconds -lt 0) { $seconds = 0 }
+    $capped = [TimeSpan]::FromSeconds($seconds)
+    return "{0}:{1:00}:{2:00}" -f [int][Math]::Floor($capped.TotalHours), $capped.Minutes, $capped.Seconds
 }
 
 function Get-VpnSessionStatLine {
@@ -1706,7 +1742,9 @@ function Get-VpnSessionStats {
         if ($durationSpan.TotalSeconds -lt 0) {
             $durationSpan = [TimeSpan]::Zero
         }
-        $remainingSpan = [TimeSpan]::FromSeconds([Math]::Max(0, $VpnSessionLimitSeconds - [int][Math]::Floor($durationSpan.TotalSeconds)))
+        $durationSeconds = [Math]::Min([int][Math]::Floor($durationSpan.TotalSeconds), $VpnSessionLimitSeconds)
+        $durationSpan = [TimeSpan]::FromSeconds($durationSeconds)
+        $remainingSpan = [TimeSpan]::FromSeconds([Math]::Max(0, $VpnSessionLimitSeconds - $durationSeconds))
         $timing.Duration = Format-VpnSessionTimeSpan -TimeSpan $durationSpan
         $timing.Remaining = Format-VpnSessionTimeSpan -TimeSpan $remainingSpan
     }
@@ -1782,7 +1820,59 @@ function Get-VpnSessionStats {
         }
     }
 
+    Set-VpnSessionTimingCap -Timing $timing
     return $timing
+}
+
+function Get-VpnServerHost {
+    param([string]$Server)
+    if ([string]::IsNullOrWhiteSpace($Server)) { return "" }
+    $value = $Server.Trim()
+    if ($value -match '^(?:https?://)?([^:/\s]+)') {
+        return $Matches[1].ToLowerInvariant()
+    }
+    return $value.ToLowerInvariant()
+}
+
+function Get-ConfiguredProfileServers {
+    $hosts = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($profileName in @(Get-ProfilesIndex)) {
+        $config = Load-ProfileConfig -Name $profileName
+        if ($config -and $config.Server) {
+            $serverHost = Get-VpnServerHost -Server ([string]$config.Server)
+            if ($serverHost) { [void]$hosts.Add($serverHost) }
+        }
+    }
+    return @($hosts)
+}
+
+function Test-VpnServerMatchesConfiguredProfile {
+    param([string]$Server)
+    $serverHost = Get-VpnServerHost -Server $Server
+    if (-not $serverHost) { return $false }
+    return ($serverHost -in (Get-ConfiguredProfileServers))
+}
+
+function Test-VpnConnectedForStatus {
+    $stats = Get-VpnSessionStats
+    $resolvedServer = ""
+    if ($stats -and $stats.Server -and [string]$stats.Server -notmatch '^\s*不可用\s*$') {
+        $resolvedServer = [string]$stats.Server
+    }
+    $vpnAdapter = Get-VpnTunnelAddress
+    if ($resolvedServer -and (Test-VpnServerMatchesConfiguredProfile -Server $resolvedServer)) {
+        if ($vpnAdapter) { return $true }
+        if ($stats.State -match '(^|[^A-Za-z])(Connected|Established)($|[^A-Za-z])|已连接|已連線') { return $true }
+        if ($stats.ClientIP -and $stats.ClientIP -notmatch '^0\.0\.0\.0\s*$|^\s*$') { return $true }
+        return $false
+    }
+
+    $fallbackServer = Get-VpnStatusFallbackServer
+    if ($vpnAdapter -and $fallbackServer -and (Test-VpnServerMatchesConfiguredProfile -Server $fallbackServer)) {
+        return $true
+    }
+
+    return $false
 }
 
 function Get-VpnStatusFallbackServer {
@@ -1830,7 +1920,11 @@ function Resolve-VpnStatusServer {
 
     if ($Stats -and $Stats.Server) {
         $statsServer = [string]$Stats.Server
-        if (-not [string]::IsNullOrWhiteSpace($statsServer) -and $statsServer -notmatch '^\s*不可用\s*$') {
+        if (
+            -not [string]::IsNullOrWhiteSpace($statsServer) -and
+            $statsServer -notmatch '^\s*不可用\s*$' -and
+            (Test-VpnServerMatchesConfiguredProfile -Server $statsServer)
+        ) {
             return $statsServer.Trim()
         }
     }
@@ -2498,8 +2592,7 @@ function Connect-Vpn {
     if (-not $server) { $server = $cred.Server }
     $cred.Server = $server
 
-    $existingTunnel = Get-VpnTunnelAddress
-    if ($existingTunnel) {
+    if (Test-VpnConnectedForStatus) {
         Write-Host "[OK] VPN already connected" -ForegroundColor Green
         Show-VpnConnectionStatus
         Write-VpnResultMarker -State CONNECTED

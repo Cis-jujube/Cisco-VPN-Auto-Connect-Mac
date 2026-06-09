@@ -340,7 +340,7 @@ Client Address (IPv4): 10.200.1.20
 "@
 Assert-Equal (Get-VpnSessionStatLine -Output $mockStatsOutput -Patterns @('Connection State:\s*(.+)')) "Connected" "Session stat parser reads state"
 Assert-Equal (Get-VpnSessionStatLine -Output $mockStatsOutput -Patterns @('Duration:\s*([0-9:]+)')) "1:23:45" "Session stat parser reads duration"
-Assert-Equal (Resolve-VpnStatusServer -Stats @{ Server = "vpn.duke.edu" } -FallbackServer "portal.dukekunshan.edu.cn") "vpn.duke.edu" "Status server prefers vpncli stats server"
+Assert-Equal (Resolve-VpnStatusServer -Stats @{ Server = "vpn.other.org" } -FallbackServer "portal.dukekunshan.edu.cn") "portal.dukekunshan.edu.cn" "Status server ignores foreign vpncli stats server"
 Assert-Equal (Resolve-VpnStatusServer -Stats @{ Server = "" } -FallbackServer "portal.dukekunshan.edu.cn") "portal.dukekunshan.edu.cn" "Status server falls back to expected server"
 
 $origVpnCliPath = $script:VpnCliPath
@@ -368,6 +368,77 @@ Assert-Equal (Resolve-VpnDisplayState -Stats @{ State = "Unknown"; ClientIP = "1
 Assert-Equal (Resolve-VpnDisplayState -Stats @{ State = "Unknown"; ClientIP = "" } -Tunnel ([pscustomobject]@{ IPAddress = "10.200.1.20" })) "Connected" "Display state overrides Unknown when tunnel exists"
 Assert-Equal (Resolve-VpnDisplayState -Stats @{ State = "Disconnected"; ClientIP = "" } -Tunnel $null) "Disconnected" "Display state preserves non-Unknown state"
 Assert-Equal (Normalize-DuoPushTarget -Value "option 02") "2" "Push target normalizes to a DUO menu number"
+
+Assert-Equal (Get-VpnServerHost -Server "portal.dukekunshan.edu.cn:443") "portal.dukekunshan.edu.cn" "Server host strips port"
+Assert-Equal (Get-VpnServerHost -Server "https://vpn.duke.edu/ssl") "vpn.duke.edu" "Server host strips scheme and path"
+
+$profileStatusDir = Join-Path $env:TEMP "vpn-status-test-$(Get-Random)"
+New-Item -ItemType Directory -Path $profileStatusDir -Force | Out-Null
+$origStatusConfigDir = $ConfigDir
+$origStatusProfilesDir = $ProfilesDir
+$origStatusProfilesIndex = $ProfilesIndex
+$origGetVpnSessionStatsForStatus = ${function:Get-VpnSessionStats}
+$origGetVpnTunnelAddressForStatus = ${function:Get-VpnTunnelAddress}
+try {
+    $ConfigDir = $profileStatusDir
+    $ProfilesDir = Join-Path $profileStatusDir "profiles"
+    $ProfilesIndex = Join-Path $profileStatusDir "profiles.json"
+    New-Item -ItemType Directory -Path $ProfilesDir -Force | Out-Null
+    Save-ProfilesIndex @("dku", "other")
+    Save-VpnProfileCore -Name "dku" -Server "portal.dukekunshan.edu.cn" -Group "-Default-" -Port "443" -Protocol "ssl" `
+        -Username "netid" -Password "secret" -DuoMethod "push" -PushTo "" | Out-Null
+    Save-VpnProfileCore -Name "other" -Server "vpn.example.com" -Group "-Default-" -Port "443" -Protocol "ssl" `
+        -Username "user2" -Password "secret2" -DuoMethod "push" -PushTo "" | Out-Null
+
+    $configuredServersError = $null
+    try {
+        $configuredServers = @(Get-ConfiguredProfileServers)
+    } catch {
+        $configuredServersError = $_
+    }
+    Assert-True ($null -eq $configuredServersError) "Configured profile server enumeration does not hit the read-only `$Host variable"
+    Assert-True ($configuredServers -contains "portal.dukekunshan.edu.cn") "Configured profile server enumeration includes the DKU host"
+
+    Assert-True (Test-VpnServerMatchesConfiguredProfile -Server "portal.dukekunshan.edu.cn:443") "Configured profile server matches with port"
+    Assert-True (Test-VpnServerMatchesConfiguredProfile -Server "vpn.example.com") "Second configured profile server matches"
+    Assert-True (-not (Test-VpnServerMatchesConfiguredProfile -Server "vpn.other.org")) "Unknown server does not match configured profiles"
+
+    $origGetVpnSessionStatsForStatus = ${function:Get-VpnSessionStats}
+    $origGetVpnTunnelAddressForStatus = ${function:Get-VpnTunnelAddress}
+    function Get-VpnSessionStats {
+        return @{
+            Server = "vpn.other.org"
+            State = "Connected"
+            ClientIP = "10.200.1.20"
+        }
+    }
+    function Get-VpnTunnelAddress {
+        return $null
+    }
+    Assert-True (-not (Test-VpnConnectedForStatus)) "Status ignores foreign server when no Cisco tunnel exists"
+
+    function Get-VpnTunnelAddress {
+        return [pscustomobject]@{ IPAddress = "10.200.1.20" }
+    }
+    Assert-True (Test-VpnConnectedForStatus) "Status falls back to active profile when Cisco tunnel exists"
+
+    function Get-VpnSessionStats {
+        return @{
+            Server = "portal.dukekunshan.edu.cn"
+            State = "Connected"
+            ClientIP = "10.200.1.20"
+        }
+    }
+    Assert-True (Test-VpnConnectedForStatus) "Status reports connected when server matches a profile"
+    Assert-Equal (Resolve-VpnStatusServer -Stats @{ Server = "vpn.other.org" } -FallbackServer "portal.dukekunshan.edu.cn") "portal.dukekunshan.edu.cn" "Status server display falls back to the current profile when stats server is foreign"
+} finally {
+    $ConfigDir = $origStatusConfigDir
+    $ProfilesDir = $origStatusProfilesDir
+    $ProfilesIndex = $origStatusProfilesIndex
+    Set-Item -Path function:Get-VpnSessionStats -Value $origGetVpnSessionStatsForStatus
+    Set-Item -Path function:Get-VpnTunnelAddress -Value $origGetVpnTunnelAddressForStatus
+    Remove-Item $profileStatusDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # Connect path: configured push target or default menu 1 (no interactive phone selection)
 $configuredTarget = Normalize-DuoPushTarget -Value "2"
@@ -737,6 +808,15 @@ try {
         -Server "vpn.duke.edu" -Group "-Default-" -Port "443" -Protocol "ssl" `
         -Username "dukeid" -Password "secret2" -DuoMethod "push" -PushTo "" -SetActive
     Assert-Equal $dukeCreated.displayName "Duke VPN" "Profile snapshot maps duke display name"
+
+    $indexBeforeFormatTest = @(Get-ProfilesIndex)
+    Save-ProfilesIndex @("solo")
+    $soloIndexRaw = Get-Content $ProfilesIndex -Raw
+    Assert-Match $soloIndexRaw '^\[\s*"solo"\s*\]' "Single-profile index is saved as JSON array"
+    Assert-Equal (Get-ProfilesIndex -join ',') "solo" "Single-profile index loads back as one profile"
+    '"legacy"' | Set-Content $ProfilesIndex -Encoding UTF8
+    Assert-Equal (Get-ProfilesIndex -join ',') "legacy" "Legacy string profile index is normalized on read"
+    Save-ProfilesIndex $indexBeforeFormatTest
 
     Remove-VpnProfile -Name "DKUVPN" -Force
     Assert-True (-not (Test-Path (Join-Path $ProfilesDir "DKUVPN"))) "Force remove deletes profile directory"

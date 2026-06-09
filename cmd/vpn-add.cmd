@@ -3,4 +3,4 @@
 @REM This command redirects to vpn-config add for unified config
 echo [!] vpn-add is deprecated. Use 'vpn-config add' instead.
 echo.
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Add
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Add

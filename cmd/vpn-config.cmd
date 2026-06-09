@@ -30,26 +30,26 @@ echo        vpn-config rm ^<name^>   Remove a profile
 echo        vpn-config reset-all    Full reset and re-setup
 exit /b 1
 :show
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Config
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Config
 exit /b
 :list
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Config -Brief
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Config -Brief
 exit /b
 :add
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Add
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Add
 exit /b
 :use
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Use %2
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Use %2
 exit /b
 :set
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Set %2 -SetValue %3
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Set %2 -SetValue %3
 exit /b
 :totp
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -SaveTOTP
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -SaveTOTP
 exit /b
 :rm
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Rm %2
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Rm %2
 exit /b
 :resetall
-powershell -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Reconfigure
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\vpn-auto-connect.ps1" -Reconfigure
 exit /b
