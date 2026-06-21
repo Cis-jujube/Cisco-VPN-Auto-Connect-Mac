@@ -7,6 +7,9 @@ dist/
 build/
 *.egg
 
+# SwiftPM
+.build/
+
 # IDE
 .vscode/
 .idea/
