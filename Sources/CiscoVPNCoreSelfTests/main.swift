@@ -1411,6 +1411,28 @@ try run("profile store persists profiles without secrets") {
     try expect(!raw.localizedCaseInsensitiveContains("totp"), "profiles JSON must not contain TOTP")
 }
 
+try run("profile store supports environment root override for isolated demos") {
+    let key = "CISCO_VPN_PROFILE_ROOT"
+    let previous = getenv(key).map { String(cString: $0) }
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "vpn-profile-env-\(UUID().uuidString)")
+        .standardizedFileURL
+    setenv(key, root.path, 1)
+    defer {
+        if let previous {
+            setenv(key, previous, 1)
+        } else {
+            unsetenv(key)
+        }
+    }
+
+    try expectEqual(
+        FileProfileStore.defaultRootDirectory().path,
+        root.path,
+        "profile root should honor environment override"
+    )
+}
+
 try run("profile subscription importer accepts metadata-only VPN profiles") {
     let payload = """
     {

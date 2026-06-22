@@ -77,6 +77,8 @@ Ad-hoc signing is acceptable for local `run` and `--verify` on this machine. Use
 - Logs redact saved username, password, and TOTP secret before displaying command output.
 - **Reset saved credentials for this profile** deletes the current profile's Keychain item only. It does not delete profile metadata.
 
+For isolated demos, screenshots, and tests that should not read real profile metadata, launch with `CISCO_VPN_PROFILE_ROOT=/tmp/some-demo-profile-root`. This changes only the profile metadata directory for that process. Use demo profile IDs that do not match real saved profiles if you also want to avoid Keychain lookups for existing items.
+
 ## Profile Subscription URLs
 
 The macOS app can import VPN profile subscriptions from the sidebar **Add** menu. This is intentionally metadata-only:

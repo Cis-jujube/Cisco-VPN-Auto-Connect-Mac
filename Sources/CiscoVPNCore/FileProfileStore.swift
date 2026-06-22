@@ -18,6 +18,13 @@ public final class FileProfileStore {
     }
 
     public static func defaultRootDirectory() -> URL {
+        if let override = ProcessInfo.processInfo.environment["CISCO_VPN_PROFILE_ROOT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !override.isEmpty
+        {
+            return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+        }
+
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support")
         return base.appending(path: "Cisco VPN AutoConnect", directoryHint: .isDirectory)

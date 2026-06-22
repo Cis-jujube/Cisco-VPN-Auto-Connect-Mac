@@ -2,77 +2,37 @@
 
 > **[English](#english)** | **[中文](#中文)**
 
----
+![Cisco VPN AutoConnect Mac app screenshot](assets/ciscovpnmac-screenshot.png)
 
 <a id="english"></a>
 
 ## English
 
-Native macOS SwiftUI app for Cisco Secure Client auto-connect, with DUO Push, multi-profile management, Keychain credential storage, profile subscriptions, diagnostics, and bilingual Chinese/English UI.
-This project was inspired by [guyong1449/cisco-vpn-autoconnect](https://github.com/guyong1449/cisco-vpn-autoconnect#%E4%B8%AD%E6%96%87), which provides a Windows-focused Cisco VPN auto-connect workflow. This repository brings the same idea to macOS as a native app while keeping the original Windows scripts for reference and compatibility.
+Cisco VPN AutoConnect Mac is a native macOS SwiftUI app for Cisco Secure Client. It helps you manage VPN profiles, store credentials in Keychain, connect with DUO Push, inspect local Cisco status, and diagnose common DKU/Duke VPN issues from one Mac app.
 
-Cisco Secure Client auto-connect tool with DUO 2FA, multi-profile management, a Windows CLI/GUI, and a native macOS SwiftUI app.
-Windows credentials are encrypted with DPAPI; macOS credentials are stored in Keychain.
-
-> **Windows:** run commands in **PowerShell** or **CMD**.
-> The Windows GUI is supported by Python while
-> connect, disconnect, and config still go through the PowerShell core script.
-> Before connecting, if Cisco GUI (`csc_ui`) or another `vpncli` holds the connection lock, the script automatically ends those processes.
->
-> **macOS:** use the SwiftUI app target `CiscoVPNMac`.
-> It drives `/opt/cisco/secureclient/bin/vpn -s`, stores secrets in Keychain, and keeps profile metadata in Application Support.
+This is the Mac version I built. It was inspired by [guyong1449/cisco-vpn-autoconnect](https://github.com/guyong1449/cisco-vpn-autoconnect#%E4%B8%AD%E6%96%87), which focuses on a Windows PowerShell/CMD workflow. This repository brings that idea to macOS with a native app, SwiftPM core logic, Keychain storage, and Mac-specific diagnostics. The screenshot above is from this app, not from the upstream Windows project.
 
 ## Features
 
 | Feature | Description |
 |---|---|
-| One-click connect | `vpn-connect` completes login (~20s + DUO approval) |
-| GUI | `vpn-gui` or double-click `vpn-gui.bat` |
-| DUO 2FA | DUO Push is recommended; TOTP passcode remains an advanced fallback |
-| Multi-phone DUO Push | Save a preferred DUO menu number for accounts with multiple DUO phones |
-| Multi-profile | `vpn-config add/use/rm/list` manage multiple VPNs |
-| Profile subscription URL | macOS app imports metadata-only VPN profile subscriptions from HTTPS URLs |
-| App language toggle | macOS app switches the full UI between Simplified Chinese and English |
-| TOTP advanced fallback | `vpn-config totp` + `vpn-connect passcode`, for accounts with a standard Base32 TOTP secret |
-| QR secret extract | `qrgui` / `qrdecode` extract TOTP secrets for advanced setup (`otpauth://` QR only) |
-| Secure storage | Windows DPAPI credentials; macOS Keychain credentials |
-| Public IP check | GUI icon `[ ip.me ]` opens the browser to verify your current public IP |
+| Native Mac app | SwiftUI interface packaged as `CiscoVPNMac.app` |
+| DUO Push first | Daily DKU/Duke flow is optimized for DUO Push approval |
+| Multi-profile management | Add DKU, Duke, custom, or URL-imported VPN profiles |
+| Secure storage | NetID, password, and optional TOTP secret are stored in macOS Keychain |
+| Mac diagnostics | Doctor checks Cisco CLI, `/usr/bin/expect`, VPN status, Keychain, profile metadata, and system proxy state |
+| Bilingual UI | Switch the app between Simplified Chinese and English |
+| Advanced TOTP fallback | Import a standard `otpauth://totp/...` or Base32 secret only when your account actually supports TOTP |
+| DKU proxy warning | Surfaces the fixed `proxy-dku.oit.duke.edu:3128` proxy case that can break public HTTPS after the tunnel connects |
 
----
+## Requirements
 
-## Installation
-
-### Prerequisites
-
-- Windows 10/11
-- [Cisco Secure Client](https://www.cisco.com/) installed (with `vpncli.exe`)
-- PowerShell 5.1+ (built-in)
-- Python 3.10+ (QR tools and GUI only)
-
-For macOS:
-
-- macOS 14+
+- Apple Silicon or Intel Mac running macOS 14+
 - Cisco Secure Client installed with `/opt/cisco/secureclient/bin/vpn`
-- Swift toolchain from Xcode Command Line Tools
+- Xcode Command Line Tools for local builds
+- `/usr/bin/expect`, included with macOS
 
-### Setup
-
-```powershell
-# 1. Clone repository
-git clone https://github.com/Cis-jujube/Cisco-VPN-Auto-Connect-Mac.git
-cd Cisco-VPN-Auto-Connect-Mac
-
-# 2. Add cmd/ to PATH (global access)
-[Environment]::SetEnvironmentVariable(
-    "PATH",
-    $env:PATH + ";$(Get-Location)\cmd",
-    "User"
-)
-
-# 3. Restart the terminal for PATH, or double-click vpn-gui.bat (no PATH needed)
-```
-
-### macOS app
+## Run From Source
 
 ```bash
 git clone https://github.com/Cis-jujube/Cisco-VPN-Auto-Connect-Mac.git
@@ -82,379 +42,94 @@ swift run CiscoVPNCoreSelfTests
 bash script/build_and_run.sh
 ```
 
-The default run script builds and launches a local `dist/CiscoVPNMac.app` bundle so SwiftUI gets a stable bundle identifier. If no Apple Development or Developer ID signing identity is available, local `run` / `--verify` use an ad-hoc signature.
+The run script builds and launches `dist/CiscoVPNMac.app` so SwiftUI has a stable app bundle. If no Apple Development or Developer ID certificate is available, local development builds are ad-hoc signed. That is enough for local testing, but distribution needs a real signing identity.
 
-For a release app bundle and optional `/Applications` install:
+## Build Or Install
 
 ```bash
+# Build a release app bundle in dist/
 bash script/build_app.sh
+
+# Copy the app to /Applications without sudo
 bash script/install_to_applications.sh
 ```
 
-`install_to_applications.sh` copies to `/Applications/Cisco VPN AutoConnect.app` without using `sudo`; if `/Applications` is not writable, it exits with a clear message. In the app, use **Doctor** to check Cisco CLI, `/usr/bin/expect`, Keychain, Profile, system proxy state, and password diagnostics before trying a real VPN login.
+`install_to_applications.sh` copies to `/Applications/Cisco VPN AutoConnect.app`. If `/Applications` is not writable by the current user, it exits with a clear message instead of asking for `sudo`.
 
-See [docs/macos-app.md](docs/macos-app.md) for storage details, verification commands, and Cisco group mapping notes.
+## Storage And Safety
 
----
+- Credentials are stored in Keychain service `CiscoVPNAutoConnect`.
+- Profile metadata is stored in `~/Library/Application Support/Cisco VPN AutoConnect/`.
+- Profile subscriptions may contain metadata only. They must not include NetID, passwords, TOTP secrets, API keys, or tokens.
+- Logs and diagnostics redact raw credentials and generated MFA values.
+- For DKU `Group: [-Default-]`, the Mac app submits an empty reply, equivalent to pressing Enter in Cisco Secure Client.
 
-## DUO login methods
+## Verification
 
-| Method | Command | Description |
-|---|---|---|
-| **Push** (recommended) | `vpn-connect` | Push to phone, tap Approve |
-| **Passcode** (full auto) | `vpn-connect passcode` | Auto-generate 6-digit TOTP from saved secret |
-
-If your DUO account has multiple phone numbers, you can save a preferred push target with `vpn-config set push-target 1` or `2`.
-This field is optional. Default is `1` when multiple push devices are shown. If only one phone is enrolled, leave it blank and the script will auto-select the only push option.
-
----
-
-## Duke Kunshan VPN setup
-
-### GUI setup
-
-```powershell
-vpn-gui              # or double-click vpn-gui.bat
+```bash
+swift run CiscoVPNCoreSelfTests
+swift build
+bash script/build_and_run.sh --verify
 ```
 
-![VPN Auto-Connect GUI — connected DKU profile with status, DUO method, and log](tools/gui.png)
+For isolated demos, screenshots, or tests that must not read your real profile metadata, set `CISCO_VPN_PROFILE_ROOT` to a temporary directory before launching the app.
 
-1. Click `[+]` to add a profile, choose **DKU VPN** preset
-2. Enter NetID and Password, then choose the appropriate DKU group
-3. Choose **DUO Method** for this profile, then save
-4. Optional: fill **PushTo** with your preferred Cisco DUO menu number only if your account has multiple DUO phones; default is `1`, and a single-phone account can leave it blank
-5. Click **Connect**. For DKU / Duke presets, the tool sends `connect <server>`, then Cisco plus the VPN server negotiate the lower-level protocol, and the saved group name is resolved from the live Cisco menu
-6. Use **Configs** to view `NetID`, password status, `Server`, `Group`, `DUO Method`, `PushTo`, and TOTP status
-   GUI also includes a **Duke VPN** preset with the same simplified form, using fixed server `vpn.duke.edu`; detailed Duke setup is explained later in this README.
+## Project Layout
 
-DKU preset groups:
-
-- `-Default-`
-- `Library Resources Only`
-
-### CLI setup
-
-```powershell
-vpn-config add
-```
-
-Enter when prompted (example values):
-
-```
-Profile name: dku
-Server:       portal.dukekunshan.edu.cn
-Group:        -Default-           (default)
-Port:         443                 (press Enter)
-Protocol:     ssl                 (press Enter)
-Push target:  (optional; press Enter to skip)
-DUO method:   push                (press Enter)
-Username:     your-netid
-Password:     ********
-```
-
-You can also set push target later: `vpn-config set push-target 1`
-
-### Duke VPN setup
-
-```powershell
-vpn-gui
-```
-
-1. Click `[+]`, choose **Duke VPN**
-2. Enter NetID and Password
-3. Choose the appropriate Duke group. Start with `INTL-DUKE` (default)
-4. Choose **DUO Method**, save, then connect
-5. Duke preset connections send only `connect vpn.duke.edu`; Cisco and the Duke VPN service negotiate the lower-level protocol, and the script maps your saved group name to the live Cisco menu number at connect time
-6. On the first Duke connect, Cisco may spend extra time on update checks or component downloads before the tunnel IP appears; the GUI extends Stage 2 IP polling to **90s** in that case (default **3s** otherwise)
-
-Duke preset groups:
-
-- `INTL-DUKE` (default)
-- `-Default-`
-- `Fuqua School of Business`
-- `Library Resources Only`
-- `Nicholas Internal`
-- `PRDN`
-- `Protected_Data`
-- `Public Safety`
-- `prod-test-1`
-
----
-
-## Command reference
-
-| Mode | Best for | Entry |
-|------|----------|-------|
-| GUI | Daily connect, password changes, status | `vpn-gui` |
-| CLI | Scripts, remote use, batch config | `vpn-config` / `vpn-connect` |
-
-### Basic commands
-
-```powershell
-vpn              # List all commands
-vpn-connect      # Connect active profile (DUO Push)
-vpn-connect -Preset dku
-vpn-connect -Preset duke -DuoMethod push
-vpn-disconnect   # Disconnect VPN
-vpn-status       # Show connection status
-```
-
-### Configuration (`vpn-config`)
-
-```powershell
-vpn-config                   # Show all settings and status
-vpn-config list              # Compact profile list
-vpn-config add               # Add new profile
-vpn-config use dku           # Switch to dku profile
-vpn-config set <key> <value> # Quick setting change
-vpn-config totp              # Save TOTP secret
-vpn-config rm <name>         # Remove a profile
-vpn-config reset-all         # Full reset and re-setup
-```
-
-### Quick settings examples
-
-```powershell
-vpn-config set server portal.dukekunshan.edu.cn   # Server
-vpn-config set group "-Default-"                   # Group
-vpn-config set port 8443                           # Port
-vpn-config set protocol ipsec                      # Protocol
-vpn-config set user newuser                        # Username and password (prompted)
-vpn-config set duo passcode                        # Default DUO method
-vpn-config set push-target 1                       # Optional preferred DUO menu number
-```
-
-### Multi-profile example
-
-```powershell
-
-# Add another VPN
-vpn-config add
-# Name:     company
-# Server:   vpn.company.com
-# Group:    Corporate-VPN
-# Port:     8443
-# Protocol: ipsec
-# Username: jsmith
-# Password: ********
-
-# List profiles
-vpn-config list
-#   * dku       portal.dukekunshan.edu.cn:443
-#     company   vpn.company.com:8443
-
-# Switch profile
-vpn-config use company
-
-# Connect
-vpn-connect
-```
-
-**Process notes:**
-
-- Before connect, if **Cisco GUI** (`csc_ui`), `vpnui`, or another **vpncli** blocks the session, the script ends those processes
-- After connect, run `vpn-disconnect` to disconnect, the Cisco system-tray GUI restarts when done
-- If DUO Push shows multiple `Push to ...` options, set `vpn-config set push-target N` or GUI **PushTo**. The Windows CLI sends the configured menu number; the macOS app defaults to **MFA Strategy: Auto**, which handles numeric menu, second-password (`push`/`pushN`), and auto-push flows without appending Duo text to the primary password field.
-- On macOS, choose **MFA Strategy: passwordAppend** only when the VPN server is known to require `password,push`, `password,push2`, or `password,<code>`. Choose **waitOnly** when the server automatically sends DUO Push after the main password.
-- On macOS, **Reset saved credentials for this profile** deletes only that profile's Keychain secret and keeps profile metadata.
-- On macOS, if normal public sites fail after DKU VPN connects, run **Doctor** and check **System proxy**. A fixed `proxy-dku.oit.duke.edu:3128` HTTP/HTTPS proxy can reject public HTTPS sites; the durable fix is PAC-only behavior or a Cisco profile using `ProxySettings=IgnoreProxy`.
-
----
-
-## TOTP advanced fallback
-
-TOTP is a 6-digit code that rotates every 30 seconds, same as Google Authenticator (RFC 6238).
-
-DUO Push is the recommended daily path. Passcode mode uses a saved TOTP secret to generate the current code, but many DUO setups expose `duo://` activation links rather than a usable TOTP secret.
-
-> DKU VPN DUO QR codes are usually `duo://` activation links, not TOTP secrets. For DKU, use **DUO Push**.
-
-### macOS app: advanced TOTP import
-
-In `CiscoVPNMac`, TOTP import is kept in **Advanced Profile Settings**:
-
-1. Open the current profile's advanced settings.
-2. Switch DUO to **TOTP Passcode** only if you already have a standard `otpauth://totp/...` link or Base32 secret.
-3. Use **Import TOTP** to import from clipboard or a QR image.
-
-The raw TOTP secret and generated 6-digit code are not shown in the UI or logs.
-
-### macOS app: profile subscription URL
-
-The macOS app can import VPN profile subscriptions from a URL. The subscription must be JSON and may include profile metadata only: name, server, group, port, protocol, DUO method, MFA strategy, and push target. It must not include usernames, passwords, TOTP secrets, API keys, tokens, or other credential-like fields.
-
-Remote subscription URLs must use HTTPS. `http://localhost` is allowed for local development.
-
-### Windows CLI: manual three-step setup
-
-On Windows, `vpn-config totp` saves the Base32 secret locally with DPAPI encryption. If the QR is standard `otpauth://totp/...`, or you already have a Base32 secret, follow these three steps.
-
-**Step 1: Extract secret**
-
-```powershell
-# QR tool dependencies (shared by qrgui / qrdecode)
-pip install pyzbar Pillow
-
-# From repo root, add tools/ to PATH (once, like cmd/, then restart terminal)
-[Environment]::SetEnvironmentVariable(
-    "PATH",
-    $env:PATH + ";$(Get-Location)\tools",
-    "User"
-)
-
-# Option A — GUI (recommended): Ctrl+V paste, drag image, or pick a file
-qrgui
-# GUI prints English label Secret:, copy the Base32 after it (A–Z, 2–7 only)
-
-# Option B — CLI: when you have the image path
-qrdecode screenshot.png
-
-```
-
-**Step 2: Save secret**
-
-```powershell
-vpn-config totp
-# Paste Base32 secret (A-Z, 2-7 only, not a duo:// link)
-# Run vpn-config to confirm TOTP is saved
-```
-
-**Step 3: Full-auto connect**
-
-```powershell
-vpn-connect passcode
-```
-
----
-
-## Security
-
-- **Credential encryption**: Windows DPAPI (`CurrentUser` scope), only the current Windows user can decrypt
-- **Config directory permissions**: Restricted to the current user
-- **Do not commit credentials**: `.gitignore` excludes the config directory
-
----
-
-## File structure
-
-```
-cisco-vpn-autoconnect/
-├── vpn-auto-connect.ps1      # Core script (PowerShell)
-├── vpn-gui.bat               # GUI launcher (calls vpn-gui.vbs)
-├── vpn-gui.vbs               # Silent GUI launcher
-├── Package.swift             # SwiftPM package for macOS targets
-├── README.md                 # This file
-├── LICENSE                   # MIT License
-├── .gitignore
-│
-├── assets/
-│   ├── vpn-auto-connect.ico  # Windows GUI / taskbar icon
-│   └── CiscoVPNMac.icns      # macOS app icon
-│
-├── cmd/                      # Command entry points
-│   ├── vpn.cmd               # List commands
-│   ├── vpn-connect.cmd       # Connect
-│   ├── vpn-disconnect.cmd    # Disconnect
-│   ├── vpn-status.cmd        # Status
-│   ├── vpn-config.cmd        # Config manager
-│   └── vpn-gui.cmd           # Launch GUI
-│
+```text
+Cisco-VPN-Auto-Connect-Mac/
+├── Package.swift
 ├── Sources/
-│   ├── CiscoVPNCore/         # Shared macOS VPN, profile, Keychain, DUO logic
-│   ├── CiscoVPNMac/          # Native SwiftUI app
-│   └── CiscoVPNCoreSelfTests/# SwiftPM self-test executable
-│
-├── script/
-│   └── build_and_run.sh      # Build, package, run, and verify macOS app bundle
-│
+│   ├── CiscoVPNCore/          # VPN, profile, Keychain, DUO, Doctor logic
+│   ├── CiscoVPNMac/           # Native SwiftUI app
+│   └── CiscoVPNCoreSelfTests/ # Lightweight self-test executable
+├── assets/
+│   ├── CiscoVPNMac.icns
+│   └── ciscovpnmac-screenshot.png
 ├── docs/
-│   └── macos-app.md          # macOS storage, launch, signing, and verification notes
-│
-└── tools/                    # Auxiliary tools
-    ├── qrdecode.py           # QR decoder (CLI)
-    ├── qrdecode_gui.py       # QR decoder (GUI)
-    ├── qrdecode.bat          # CLI launcher
-    ├── qrgui.bat             # GUI launcher (calls qrgui.vbs)
-    ├── qrgui.vbs             # Silent QR GUI launcher
-    ├── vpn-gui.py            # VPN GUI manager
-    └── gui.png               # GUI screenshot (README)
+│   └── macos-app.md
+└── script/
+    ├── build_and_run.sh
+    ├── build_app.sh
+    ├── install_to_applications.sh
+    └── sign_app.sh
 ```
 
----
+## Attribution
 
-## License
+The original idea came from [guyong1449/cisco-vpn-autoconnect](https://github.com/guyong1449/cisco-vpn-autoconnect#%E4%B8%AD%E6%96%87), a Windows-oriented Cisco VPN auto-connect project. This repository is my Mac implementation of that workflow.
 
-[MIT](LICENSE)
-
----
+This project is not affiliated with Cisco, Duke University, or Duke Kunshan University.
 
 <a id="中文"></a>
 
-Cisco Secure Client 自动连接的原生 macOS SwiftUI App，支持 DUO Push、多 Profile 管理、Keychain 凭据存储、Profile 订阅、诊断工具，以及简体中文 / English 双语界面。
-本项目灵感来自 [guyong1449/cisco-vpn-autoconnect](https://github.com/guyong1449/cisco-vpn-autoconnect#%E4%B8%AD%E6%96%87)：原项目主要提供 Windows 版 Cisco VPN 自动连接流程；这个仓库把同样的思路做成了原生 Mac App，并保留原 Windows 脚本作为参考和兼容入口。
+## 中文
 
-Cisco Secure Client 自动连接工具，支持 DUO 2FA、多配置管理、Windows CLI/GUI，以及原生 macOS SwiftUI App。
-Windows 凭据通过 DPAPI 加密存储；macOS 凭据存入 Keychain。
+Cisco VPN AutoConnect Mac 是一个给 macOS 使用的原生 SwiftUI 应用，用来管理 Cisco Secure Client 的 VPN Profile、把凭据存入 Keychain、使用 DUO Push 连接、查看本机 Cisco 状态，并诊断 DKU / Duke VPN 的常见问题。
 
-> **Windows：**命令行请在 **PowerShell** 或 **CMD** 里执行。
-> Windows GUI 是 Python 图形界面，
-> 连接、断开和配置仍由 PowerShell 核心脚本完成。
-> 连接前若 Cisco GUI（`csc_ui`）或其它 `vpncli` 占用了连接功能，脚本会结束这些进程。
->
-> **macOS：**使用 SwiftUI App 目标 `CiscoVPNMac`。
-> 它调用 `/opt/cisco/secureclient/bin/vpn -s`，凭据存入 Keychain，Profile 元数据存入 Application Support。
+这是我自己做的 Mac 版本。项目灵感来自 [guyong1449/cisco-vpn-autoconnect](https://github.com/guyong1449/cisco-vpn-autoconnect#%E4%B8%AD%E6%96%87)，它主要是 Windows PowerShell/CMD 方案。这个仓库把同样的想法做成了 macOS 原生 App，包含 SwiftPM 核心逻辑、Keychain 安全存储和 Mac 侧诊断能力。上方截图来自这个 Mac App 本身，不是上游 Windows 项目的截图。
 
-## 功能特性
+## 功能
 
 | 功能 | 说明 |
 |---|---|
-| 一键连接 | `vpn-connect` 自动完成登录（约 20s + DUO 审批） |
-| GUI 界面 | `vpn-gui` 或双击 `vpn-gui.bat` |
-| DUO 双因素 | 推荐 DUO Push；TOTP passcode 保留为高级备用 |
-| 多手机号 DUO Push | 多个 DUO 手机号时，可保存首选 DUO 菜单序号 |
-| 多配置管理 | `vpn-config add/use/rm/list` 管理多个 VPN 配置 |
-| Profile URL 订阅 | macOS App 可从 HTTPS URL 导入只含元数据的 VPN Profile 订阅 |
-| App 语言切换 | macOS App 支持全界面简体中文 / English 切换 |
-| TOTP 高级备用 | `vpn-config totp` + `vpn-connect passcode`，仅适合已有标准 Base32 TOTP secret 的账号 |
-| QR 提取密钥 | `qrgui` / `qrdecode` 从图片提取 TOTP 密钥，供高级配置使用（需 `otpauth://` 格式） |
-| 安全存储 | Windows 使用 DPAPI；macOS 使用 Keychain |
-| 公网 IP 检查 | 点击 GUI按钮 `[ ip.me ]` 跳转浏览器, 验证当前公网 IP |
+| 原生 Mac App | SwiftUI 界面，打包为 `CiscoVPNMac.app` |
+| 优先 DUO Push | 日常 DKU / Duke 登录流程以手机 Approve 为主 |
+| 多 Profile 管理 | 可添加 DKU、Duke、自定义 VPN，或从 URL 导入 Profile 元数据 |
+| 安全存储 | NetID、密码和可选 TOTP secret 存入 macOS Keychain |
+| Mac 诊断 | Doctor 检查 Cisco CLI、`/usr/bin/expect`、VPN 状态、Keychain、Profile 元数据和系统代理 |
+| 双语界面 | App 内可切换简体中文 / English |
+| TOTP 高级备用 | 只有账号确实支持标准 `otpauth://totp/...` 或 Base32 secret 时才使用 |
+| DKU 代理提示 | 可提示固定 `proxy-dku.oit.duke.edu:3128` 代理导致公网 HTTPS 失败的情况 |
 
----
+## 前置条件
 
-## 安装
+- Apple Silicon 或 Intel Mac，macOS 14+
+- 已安装 Cisco Secure Client，并包含 `/opt/cisco/secureclient/bin/vpn`
+- 本地构建需要 Xcode Command Line Tools
+- `/usr/bin/expect`，macOS 自带
 
-### 前置条件
-
-- Windows 10/11
-- [Cisco Secure Client](https://www.cisco.com/) 已安装（含 `vpncli.exe`）
-- PowerShell 5.1+（Windows 自带）
-- Python 3.10+（仅 QR 工具和 GUI 需要）
-
-macOS 需要：
-
-- macOS 14+
-- Cisco Secure Client 已安装，并带有 `/opt/cisco/secureclient/bin/vpn`
-- Xcode Command Line Tools 提供的 Swift 工具链
-
-### 安装步骤
-
-```powershell
-# 1. 克隆仓库
-git clone https://github.com/Cis-jujube/Cisco-VPN-Auto-Connect-Mac.git
-cd Cisco-VPN-Auto-Connect-Mac
-
-# 2. 添加 cmd/ 到 PATH（全局可用）
-[Environment]::SetEnvironmentVariable(
-    "PATH",
-    $env:PATH + ";$(Get-Location)\cmd",
-    "User"
-)
-
-# 3. 重启终端使 PATH 生效，也可直接双击 vpn-gui.bat 启动 GUI（无需 PATH）
-```
-
-### macOS App
+## 从源码运行
 
 ```bash
 git clone https://github.com/Cis-jujube/Cisco-VPN-Auto-Connect-Mac.git
@@ -464,305 +139,61 @@ swift run CiscoVPNCoreSelfTests
 bash script/build_and_run.sh
 ```
 
-默认脚本会构建并启动本地 `dist/CiscoVPNMac.app`，让 SwiftUI 获得稳定的 bundle identifier。没有 Apple Development / Developer ID 签名身份时，本地 `run` / `--verify` 会使用 ad-hoc 签名。
+运行脚本会构建并启动 `dist/CiscoVPNMac.app`，让 SwiftUI 获得稳定的 app bundle。没有 Apple Development 或 Developer ID 证书时，本地开发构建会使用 ad-hoc 签名；这足够本机测试，但正式分发需要真实签名身份。
 
-生成 release app bundle 并可选安装到 `/Applications`：
+## 构建或安装
 
 ```bash
+# 在 dist/ 生成 release app bundle
 bash script/build_app.sh
+
+# 不使用 sudo，复制到 /Applications
 bash script/install_to_applications.sh
 ```
 
-`install_to_applications.sh` 会复制到 `/Applications/Cisco VPN AutoConnect.app`，不会使用 `sudo`；如果当前用户没有写入 `/Applications` 的权限，会明确退出。App 内可以用 **Doctor** 检查 Cisco CLI、`/usr/bin/expect`、Keychain、Profile、系统代理状态和密码字符诊断，再尝试真实 VPN 登录。
+`install_to_applications.sh` 会复制到 `/Applications/Cisco VPN AutoConnect.app`。如果当前用户没有 `/Applications` 写入权限，脚本会明确退出，不会要求 `sudo`。
 
-存储位置、验证命令和 Cisco group 映射说明见 [docs/macos-app.md](docs/macos-app.md)。
+## 存储与安全
 
----
+- 凭据存储在 Keychain service `CiscoVPNAutoConnect`。
+- Profile 元数据存储在 `~/Library/Application Support/Cisco VPN AutoConnect/`。
+- Profile 订阅只能包含元数据，不能包含 NetID、密码、TOTP secret、API key 或 token。
+- 日志和诊断会隐藏原始凭据和生成的 MFA 值。
+- DKU 的 `Group: [-Default-]` 会提交空回复，相当于在 Cisco Secure Client 里直接按 Enter。
 
-## DUO 登录方式
+## 验证
 
-| 方式 | 命令 | 说明 |
-|---|---|---|
-| **Push**（推荐） | `vpn-connect` | 推送通知到手机，点「Approve」通过 |
-| **Passcode**（全自动） | `vpn-connect passcode` | 用本地 TOTP 密钥自动生成 6 位验证码 |
-
-如果你的 DUO 账号绑定了多个手机号，可以用 `vpn-config set push-target 1` 或 `2` 保存首选 DUO 菜单序号。
-这个字段是可选的。多个设备时默认按 `1` 处理；如果账号里只有一个已认证手机，可以留空跳过，脚本会自动选择唯一的 Push 选项。
-
----
-
-## DKU VPN 配置指南
-
-### GUI 配置
-
-```powershell
-vpn-gui              # 或双击 vpn-gui.bat
+```bash
+swift run CiscoVPNCoreSelfTests
+swift build
+bash script/build_and_run.sh --verify
 ```
 
-![VPN Auto-Connect GUI — 已连接 DKU 配置，含状态、DUO 方式与日志](tools/gui.png)
+如果要做隔离演示、截图或测试，并且不希望读取真实 Profile 元数据，可以在启动 App 前把 `CISCO_VPN_PROFILE_ROOT` 设置为临时目录。
 
-1. 点 `[+]` 添加配置，选 **DKU VPN** 预设
-2. 填写 NetID 和 Password，然后选择对应的 DKU 组
-3. 先为当前配置选择 **DUO Method**，再保存
-4. 如有多个 DUO 手机号，可选填 **PushTo** 为想使用的 Cisco DUO 菜单序号；默认是 `1`，若只有一个手机可留空
-5. 保存后点 **Connect**。对于 DKU / Duke 预设，工具只发送 `connect <server>`，底层协议交给 Cisco 客户端和 VPN 服务端协商，已保存的组名会在连接时动态映射到 Cisco 当前菜单序号
-6. 用 **Configs** 查看 `NetID`、密码状态、`Server`、`Group`、`DUO Method`、`PushTo` 和 TOTP 状态
-   GUI 也提供 **Duke VPN** 预设，表单和 DKU 一样简化，服务器固定为 `vpn.duke.edu`；后文会详细说明 Duke 的配置流程。
+## 项目结构
 
-DKU 预设可选组：
-
-- `-Default-`
-- `Library Resources Only`
-
-### 命令行配置
-
-```powershell
-vpn-config add
-```
-
-按提示输入（示例值）：
-
-```
-Profile name: dku
-Server:       portal.dukekunshan.edu.cn
-Group:        -Default-           (直接回车)
-Port:         443                 (直接回车)
-Protocol:     ssl                 (直接回车)
-Push target:  (可选，直接回车跳过)
-DUO method:   push                (直接回车)
-Username:     your-netid
-Password:     ********
-```
-
-也可事后设置 Push 目标：`vpn-config set push-target 1`
-
-### Duke VPN 配置
-
-```powershell
-vpn-gui
-```
-
-1. 点 `[+]`，选择 **Duke VPN**
-2. 输入 NetID 和 Password
-3. 选择对应的 Duke 组，优先使用 `INTL-DUKE`（默认）
-4. 选择 **DUO Method**，保存后再连接
-5. Duke 预设连接时只发送 `connect vpn.duke.edu`；底层协议由 Cisco 和 Duke VPN 服务端协商，脚本会在连接时把你保存的组名映射成 Cisco 当前菜单里的正确序号
-6. 第一次连 Duke 时，Cisco 可能会先做更新检查或下载组件，隧道 IP 出现会更慢；此时 GUI 会把 Stage 2 IP 轮询延长到 **90s**（平时默认 **3s**）
-
-Duke 预设可选组：
-
-- `INTL-DUKE`（默认）
-- `-Default-`
-- `Fuqua School of Business`
-- `Library Resources Only`
-- `Nicholas Internal`
-- `PRDN`
-- `Protected_Data`
-- `Public Safety`
-- `prod-test-1`
-
----
-
-## 配置与命令速查
-
-| 方式 | 适合 | 入口 |
-|------|------|------|
-| GUI | 日常连接、改密码、看状态 | `vpn-gui` |
-| 命令行 | 脚本、远程、批量改配置 | `vpn-config` / `vpn-connect` |
-
-### 基础命令
-
-```powershell
-vpn              # 显示所有命令
-vpn-connect      # 连接当前激活 profile（DUO Push）
-vpn-connect -Preset dku
-vpn-connect -Preset duke -DuoMethod push
-vpn-disconnect   # 断开 VPN
-vpn-status       # 显示连接状态
-```
-
-### 配置管理（统一入口 vpn-config）
-
-```powershell
-vpn-config                   # 查看所有配置和状态
-vpn-config list              # 简洁列出所有 Profile
-vpn-config add               # 添加新配置
-vpn-config use dku           # 切换到 dku 配置
-vpn-config set <key> <value> # 快速修改单项设置
-vpn-config totp              # 保存 TOTP 密钥
-vpn-config rm <name>         # 删除指定配置
-vpn-config reset-all         # 完全重置并重新设置
-```
-
-### 快速设置示例
-
-```powershell
-vpn-config set server portal.dukekunshan.edu.cn   # 修改服务器
-vpn-config set group "-Default-"                   # 修改分组
-vpn-config set port 8443                           # 修改端口
-vpn-config set protocol ipsec                      # 修改协议
-vpn-config set user newuser                        # 修改用户名和密码（会提示输入）
-vpn-config set duo passcode                        # 修改默认 DUO 方式
-vpn-config set push-target 1                       # 可选：首选 DUO 菜单序号
-```
-
-### 多 VPN 配置示例
-
-```powershell
-# 添加其他 VPN
-vpn-config add
-# Name:     company
-# Server:   vpn.company.com
-# Group:    Corporate-VPN
-# Port:     8443
-# Protocol: ipsec
-# Username: jsmith
-# Password: ********
-
-# 查看所有配置
-vpn-config list
-#   * dku       portal.dukekunshan.edu.cn:443
-#     company   vpn.company.com:8443
-
-# 切换到其他 VPN
-vpn-config use company
-
-# 连接
-vpn-connect
-```
-
-**进程说明：**
-
-- 连接前若 **Cisco GUI**（`csc_ui`）、`vpnui` 或其它 **vpncli** 占用连接功能，脚本会结束这些进程
-- 连接结束后执行 `vpn-disconnect` 即可断开，断开后会重启 Cisco 托盘 GUI
-- 如果 DUO Push 出现多个 `Push to ...` 选项，请事先 `vpn-config set push-target N` 或在 GUI 填 **PushTo**。Windows CLI 会发送配置的菜单序号；macOS App 默认使用 **MFA Strategy: Auto**，会处理数字菜单、Second Password（`push`/`pushN`）和自动 Push，但不会把 Duo 文本拼进主密码字段。
-- 只有确认 VPN 服务器要求 `password,push`、`password,push2` 或 `password,<code>` 时，才在 macOS App 里选择 **MFA Strategy: passwordAppend**。服务器会在主密码后自动推送 DUO 时，选择 **waitOnly**。
-- macOS App 的 **Reset saved credentials for this profile** 只删除当前 profile 的 Keychain 凭据，不删除 profile metadata。
-- macOS 连接 DKU VPN 后如果普通公网网站打不开，先运行 **Doctor** 查看 **System proxy**。固定的 `proxy-dku.oit.duke.edu:3128` HTTP/HTTPS 代理可能拒绝公网 HTTPS；持久修复应改成只使用 PAC，或使用 `ProxySettings=IgnoreProxy` 的 Cisco profile。
-
----
-
-## TOTP 高级备用
-
-TOTP 是 6 位动态验证码，和 Google Authenticator 里那种一样（RFC 6238，每 30 秒换一组）。
-
-日常推荐使用 DUO Push。Passcode 模式会用保存的 TOTP 密钥生成当前验证码，但很多 DUO 配置只提供 `duo://` 激活链接，并不提供可用的 TOTP secret。
-
-> DKU VPN 的 DUO 二维码多半是 `duo://` 激活链接，提不出 TOTP 密钥，一般只能用 **DUO Push**。
-
-### macOS App：高级 TOTP 导入
-
-在 `CiscoVPNMac` 里，TOTP 入口放在 **高级 Profile 设置**：
-
-1. 打开当前 Profile 的高级设置。
-2. 只有已经拿到标准 `otpauth://totp/...` 链接或 Base32 secret 时，才把 DUO 切到 **TOTP Passcode**。
-3. 使用 **导入 TOTP** 从剪贴板或二维码图片导入。
-
-TOTP secret 和生成的 6 位验证码不会显示在界面或日志里。
-
-### macOS App：Profile URL 订阅
-
-macOS App 可以从 URL 导入 VPN Profile 订阅。订阅必须是 JSON，并且只能包含 Profile 元数据：名称、服务器、Group、端口、协议、DUO 方式、MFA 策略和 Push 目标。订阅不能包含 NetID、Password、TOTP secret、API key、token 或其他凭据字段。
-
-远程订阅 URL 必须使用 HTTPS。本机开发调试允许 `http://localhost`。
-
-### Windows CLI：手动三步配置
-
-Windows 上，`vpn-config totp` 会把 Base32 密钥存到本地，并使用 DPAPI 加密。二维码是标准 `otpauth://totp/...`，或者你已有 Base32 密钥，按下面三步来。
-
-**第 1 步：提取密钥**
-
-```powershell
-# 安装 QR 工具依赖（qrgui / qrdecode 共用）
-pip install pyzbar Pillow
-
-# 在仓库根目录：把 tools/ 加入 PATH（一次即可，与 cmd/ 同理，改完后重启终端）
-[Environment]::SetEnvironmentVariable(
-    "PATH",
-    $env:PATH + ";$(Get-Location)\tools",
-    "User"
-)
-
-# 方式 A — GUI（推荐）：Ctrl+V 粘贴、拖入图片，或点击选文件
-qrgui
-# GUI 输出为英文标签 Secret:，复制后面的 Base32（仅 A–Z、2–7）
-
-# 方式 B — CLI：已知图片路径时用命令行
-qrdecode screenshot.png
-
-```
-
-**第 2 步：保存密钥**
-
-```powershell
-vpn-config totp
-# 粘贴 Base32 密钥（仅 A-Z、2-7，不要粘贴 duo:// 链接）
-# 运行 vpn-config 可查看 TOTP 是否已保存
-```
-
-**第 3 步：全自动连接**
-
-```powershell
-vpn-connect passcode
-```
-
----
-
-## 安全说明
-
-- **凭据加密**：使用 Windows DPAPI（`CurrentUser` scope），仅当前 Windows 用户可解密
-- **配置目录权限**：自动设置为仅当前用户可访问
-- **不要提交凭据**：`.gitignore` 已排除配置目录
-
----
-
-## 文件结构
-
-```
-cisco-vpn-autoconnect/
-├── vpn-auto-connect.ps1      # 核心脚本 (PowerShell)
-├── vpn-gui.bat               # GUI 启动入口（调用 vpn-gui.vbs）
-├── vpn-gui.vbs               # 无窗口启动 GUI
-├── Package.swift             # macOS 目标的 SwiftPM package
-├── README.md                 # 本文档
-├── LICENSE                   # MIT License
-├── .gitignore
-│
-├── assets/
-│   ├── vpn-auto-connect.ico  # Windows GUI / 任务栏图标
-│   └── CiscoVPNMac.icns      # macOS app 图标
-│
-├── cmd/                      # 命令入口
-│   ├── vpn.cmd               # 显示命令列表
-│   ├── vpn-connect.cmd       # 连接
-│   ├── vpn-disconnect.cmd    # 断开
-│   ├── vpn-status.cmd        # 状态
-│   ├── vpn-config.cmd        # 配置管理
-│   └── vpn-gui.cmd           # 启动 GUI
-│
+```text
+Cisco-VPN-Auto-Connect-Mac/
+├── Package.swift
 ├── Sources/
-│   ├── CiscoVPNCore/         # macOS VPN、Profile、Keychain、DUO 共享逻辑
-│   ├── CiscoVPNMac/          # 原生 SwiftUI app
-│   └── CiscoVPNCoreSelfTests/# SwiftPM 自测可执行目标
-│
-├── script/
-│   └── build_and_run.sh      # 构建、打包、运行、验证 macOS app bundle
-│
+│   ├── CiscoVPNCore/          # VPN、Profile、Keychain、DUO、Doctor 逻辑
+│   ├── CiscoVPNMac/           # 原生 SwiftUI App
+│   └── CiscoVPNCoreSelfTests/ # 轻量自测可执行目标
+├── assets/
+│   ├── CiscoVPNMac.icns
+│   └── ciscovpnmac-screenshot.png
 ├── docs/
-│   └── macos-app.md          # macOS 存储、启动、签名和验证说明
-│
-└── tools/                    # 辅助工具
-    ├── qrdecode.py           # QR 解码 (CLI)
-    ├── qrdecode_gui.py       # QR 解码 (GUI)
-    ├── qrdecode.bat          # CLI 入口
-    ├── qrgui.bat             # GUI 入口（调用 qrgui.vbs）
-    ├── qrgui.vbs             # 无窗口启动 QR GUI
-    ├── vpn-gui.py            # VPN GUI 管理器
-    └── gui.png               # GUI 截图（README 用）
+│   └── macos-app.md
+└── script/
+    ├── build_and_run.sh
+    ├── build_app.sh
+    ├── install_to_applications.sh
+    └── sign_app.sh
 ```
 
----
+## 致谢
 
-## License
+最初灵感来自 [guyong1449/cisco-vpn-autoconnect](https://github.com/guyong1449/cisco-vpn-autoconnect#%E4%B8%AD%E6%96%87)。原项目主要面向 Windows 的 Cisco VPN 自动连接流程；这个仓库是我做的 Mac 原生实现。
 
-[MIT](LICENSE)
+本项目不隶属于 Cisco、Duke University 或 Duke Kunshan University。
